@@ -193,7 +193,7 @@ jobs:
 
       - name: Publish build provenance
         if: ${{ !github.event.repository.private }}
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             weather-signal-${{ matrix.asset }}.tar.gz
