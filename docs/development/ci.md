@@ -9,6 +9,7 @@ CI runs on pull requests and pushes to `master` or `main`.
 - `cargo test --locked --all-features`
 - `cargo check --locked --all-features` on Rust 1.93.0
 - `cargo deny check`
+- `cargo audit`
 
 ## Docs Checks
 
@@ -28,7 +29,8 @@ projects:
 1. Run `Prepare Release` with a semantic version such as `0.0.0`.
 2. Merge the generated `release/<version>` PR into `master` or `main`.
 3. `Tag Release` creates and pushes `v<version>`.
-4. `Release` validates metadata, builds release binaries, generates checksums
-   and SBOMs, and publishes GitHub release assets.
+4. `Release` validates metadata, reruns fmt/clippy/test/deny/audit gates,
+   builds release binaries, generates checksums and SBOMs, and publishes GitHub
+   release assets.
 
 The release tag workflow requires `RELEASE_TAG_TOKEN` with `contents:write`.

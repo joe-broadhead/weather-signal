@@ -31,6 +31,7 @@ By default, the CLI uses the public Open-Meteo APIs:
 
 - Forecast: `https://api.open-meteo.com/v1/forecast`
 - Geocoding: `https://geocoding-api.open-meteo.com/v1/search`
+- Historical archive: `https://archive-api.open-meteo.com/v1/archive`
 
 For commercial or self-hosted deployments:
 
@@ -38,4 +39,5 @@ For commercial or self-hosted deployments:
 export OPEN_METEO_API_KEY="..."
 export OPEN_METEO_FORECAST_BASE_URL="https://customer-api.open-meteo.com/v1/forecast"
 export OPEN_METEO_GEOCODING_BASE_URL="https://geocoding-api.open-meteo.com/v1/search"
+export OPEN_METEO_HISTORICAL_BASE_URL="https://archive-api.open-meteo.com/v1/archive"
 ```

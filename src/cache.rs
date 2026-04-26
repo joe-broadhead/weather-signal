@@ -8,6 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
+use tracing::debug;
 
 const SCHEMA_VERSION: &str = "v1";
 static CACHE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -52,12 +53,15 @@ impl Cache {
     pub(crate) fn get(&self, url: &str, ttl: Duration) -> Result<Option<Value>> {
         let path = self.key(url);
         if !path.exists() {
+            debug!(url, "cache file missing");
             return Ok(None);
         }
         let modified = fs::metadata(&path)?.modified()?;
         if modified.elapsed().unwrap_or(Duration::MAX) > ttl {
+            debug!(url, path = %path.display(), "cache file expired");
             return Ok(None);
         }
+        debug!(url, path = %path.display(), "cache file read");
         Ok(Some(serde_json::from_str(&fs::read_to_string(path)?)?))
     }
 
@@ -73,6 +77,7 @@ impl Cache {
         fs::rename(&temp_path, path).inspect_err(|_rename_error| {
             let _ = fs::remove_file(&temp_path);
         })?;
+        debug!(url, "cache file written");
         Ok(())
     }
 

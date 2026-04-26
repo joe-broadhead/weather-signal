@@ -3,6 +3,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use serde_json::json;
 use std::process;
+use tracing_subscriber::{EnvFilter, fmt};
 
 mod app;
 mod cache;
@@ -32,16 +33,30 @@ pub(crate) const DEFAULT_BATCH_CONCURRENCY: usize = 4;
 
 #[tokio::main]
 async fn main() {
+    init_tracing();
     let cli = Cli::parse();
     let output = cli.output_format();
     if let Err(err) = run(cli).await {
         if output == OutputFormat::Json {
-            eprintln!("{}", json!({"error": err.to_string()}));
+            let causes = err
+                .chain()
+                .skip(1)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            eprintln!("{}", json!({"error": err.to_string(), "causes": causes}));
         } else {
             eprintln!("error: {err:#}");
         }
         process::exit(1);
     }
+}
+
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
+    let _ = fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 async fn run(cli: Cli) -> Result<()> {

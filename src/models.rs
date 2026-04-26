@@ -9,7 +9,6 @@ pub(crate) enum ForecastKind {
     Current,
     Daily,
     Hourly,
-    Signal,
 }
 
 pub(crate) struct Cached<T> {

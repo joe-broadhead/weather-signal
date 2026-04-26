@@ -50,5 +50,8 @@ weather-signal signal london --country GB --timeout 15s
 | `OPEN_METEO_FORECAST_BASE_URL` | Overrides the forecast endpoint |
 | `OPEN_METEO_GEOCODING_BASE_URL` | Overrides the geocoding endpoint |
 | `OPEN_METEO_HISTORICAL_BASE_URL` | Overrides the historical archive endpoint |
+| `RUST_LOG` | Enables stderr diagnostics, for example `weather_signal=debug` |
 
 Command-line flags take precedence over environment variables.
+
+Logs always go to stderr so JSON, table, and CSV stdout remain parseable.

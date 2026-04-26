@@ -165,6 +165,49 @@ async fn mcp_stdio_initializes_and_lists_weather_tools() {
         "cache_status payload should include cache path: {payload}"
     );
 
+    write_json_line(
+        &mut stdin,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "threshold_days",
+                "arguments": {
+                    "location": "london",
+                    "country": "GB"
+                }
+            }
+        }),
+    )
+    .await
+    .expect("failed to write failing tools/call request");
+
+    let error_call_response = read_response(&mut stdout, 4).await;
+    let result = error_call_response
+        .get("result")
+        .expect("tool-level failures should still return a tool result");
+    assert_eq!(
+        result.get("isError").and_then(Value::as_bool),
+        Some(true),
+        "failing tool call should set result.isError=true: {error_call_response}"
+    );
+    let error_text = result
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|content| content.first())
+        .and_then(|item| item.get("text"))
+        .and_then(Value::as_str)
+        .expect("error tool result should include text content");
+    let error_payload: Value = serde_json::from_str(error_text).expect("error text should be JSON");
+    assert!(
+        error_payload
+            .get("error")
+            .and_then(Value::as_str)
+            .is_some_and(|message| message.contains("at least one threshold")),
+        "unexpected error payload: {error_payload}"
+    );
+
     child.start_kill().expect("failed to terminate MCP child");
     let _ = child.wait().await;
 }

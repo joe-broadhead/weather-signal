@@ -75,14 +75,14 @@ impl WeatherMcpServer {
         .to_string()
     }
 
-    async fn handle<T, Fut>(&self, future: Fut) -> String
+    async fn handle<T, Fut>(&self, future: Fut) -> std::result::Result<String, String>
     where
         T: Serialize,
         Fut: std::future::Future<Output = Result<T>>,
     {
         match future.await {
-            Ok(value) => Self::success(&value),
-            Err(error) => Self::error(error),
+            Ok(value) => Ok(Self::success(&value)),
+            Err(error) => Err(Self::error(error)),
         }
     }
 }
@@ -93,7 +93,10 @@ impl WeatherMcpServer {
         name = "geocode",
         description = "Resolve a place name using Open-Meteo geocoding. Use before weather tools when location names are ambiguous."
     )]
-    async fn geocode_tool(&self, params: Parameters<GeocodeToolParams>) -> String {
+    async fn geocode_tool(
+        &self,
+        params: Parameters<GeocodeToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             let count = params.count.unwrap_or(5);
@@ -111,7 +114,10 @@ impl WeatherMcpServer {
         name = "current_weather",
         description = "Fetch current Open-Meteo weather fields for a resolved location, saved alias, or lat,lon."
     )]
-    async fn current_weather(&self, params: Parameters<LocationToolParams>) -> String {
+    async fn current_weather(
+        &self,
+        params: Parameters<LocationToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             let resolved = self
@@ -129,7 +135,10 @@ impl WeatherMcpServer {
         name = "daily_forecast",
         description = "Fetch daily Open-Meteo forecast variables for 1 to 16 days."
     )]
-    async fn daily_forecast(&self, params: Parameters<DaysToolParams>) -> String {
+    async fn daily_forecast(
+        &self,
+        params: Parameters<DaysToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             let days = normalize_days(params.days)?;
@@ -148,7 +157,10 @@ impl WeatherMcpServer {
         name = "hourly_forecast",
         description = "Fetch hourly Open-Meteo forecast variables for 1 to 384 hours."
     )]
-    async fn hourly_forecast(&self, params: Parameters<HourlyToolParams>) -> String {
+    async fn hourly_forecast(
+        &self,
+        params: Parameters<HourlyToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             let hours = params.hours.unwrap_or(48);
@@ -171,7 +183,10 @@ impl WeatherMcpServer {
         name = "demand_signal",
         description = "Return normalized daily demand-oriented weather features and flags for a forecast window."
     )]
-    async fn demand_signal(&self, params: Parameters<DaysToolParams>) -> String {
+    async fn demand_signal(
+        &self,
+        params: Parameters<DaysToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             self.app
@@ -190,7 +205,10 @@ impl WeatherMcpServer {
         name = "weather_summary",
         description = "Return a compact forecast-window summary with risk, warm, hot, wet, windy, and sunny day counts."
     )]
-    async fn weather_summary(&self, params: Parameters<DaysToolParams>) -> String {
+    async fn weather_summary(
+        &self,
+        params: Parameters<DaysToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             self.app
@@ -209,7 +227,10 @@ impl WeatherMcpServer {
         name = "threshold_days",
         description = "Filter forecast days by decision thresholds such as rain probability, precipitation, temperature, or wind gust."
     )]
-    async fn threshold_days(&self, params: Parameters<ThresholdToolParams>) -> String {
+    async fn threshold_days(
+        &self,
+        params: Parameters<ThresholdToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             self.app
@@ -232,7 +253,10 @@ impl WeatherMcpServer {
         name = "historical_weather",
         description = "Fetch daily Open-Meteo archive variables for a date range, useful for backtesting weather features."
     )]
-    async fn historical_weather(&self, params: Parameters<HistoricalToolParams>) -> String {
+    async fn historical_weather(
+        &self,
+        params: Parameters<HistoricalToolParams>,
+    ) -> std::result::Result<String, String> {
         let params = params.0;
         self.handle(async move {
             let start = parse_date(&params.start, "start")?;
@@ -253,18 +277,18 @@ impl WeatherMcpServer {
         name = "list_places",
         description = "List saved weather location aliases."
     )]
-    async fn list_places(&self) -> String {
-        Self::success(&self.app.config.places)
+    async fn list_places(&self) -> std::result::Result<String, String> {
+        Ok(Self::success(&self.app.config.places))
     }
 
     #[tool(
         name = "cache_status",
         description = "Inspect the local weather response cache path, file count, and byte size."
     )]
-    async fn cache_status(&self) -> String {
+    async fn cache_status(&self) -> std::result::Result<String, String> {
         match self.app.cache.status() {
-            Ok(status) => Self::success(&status),
-            Err(error) => Self::error(error),
+            Ok(status) => Ok(Self::success(&status)),
+            Err(error) => Err(Self::error(error)),
         }
     }
 }
@@ -380,6 +404,11 @@ async fn serve_mcp_http(
         .route("/healthz", get(http_liveness))
         .route("/readyz", get(http_readiness));
     let path = normalized_http_path(&args.http_path);
+    if matches!(path.as_str(), "/healthz" | "/readyz") {
+        return Err(anyhow!(
+            "--http-path {path} conflicts with built-in health endpoints"
+        ));
+    }
     let app = if path == "/" {
         base_app.fallback_service(service)
     } else {

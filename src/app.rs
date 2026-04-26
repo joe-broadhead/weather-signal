@@ -19,6 +19,8 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+use tokio::time::sleep;
+use tracing::{debug, warn};
 use url::Url;
 
 const CURRENT_VARS: &[&str] = &[
@@ -76,6 +78,7 @@ const HISTORICAL_DAILY_VARS: &[&str] = &[
     "wind_gusts_10m_max",
     "sunshine_duration",
 ];
+const MAX_REQUEST_ATTEMPTS: usize = 3;
 
 #[derive(Clone)]
 pub(crate) struct App {
@@ -99,6 +102,7 @@ impl App {
             client: reqwest::Client::builder()
                 .timeout(cli.timeout)
                 .connect_timeout(Duration::from_secs(10))
+                .user_agent(format!("weather-signal/{}", env!("CARGO_PKG_VERSION")))
                 .build()
                 .context("failed to build HTTP client")?,
             config,
@@ -142,11 +146,15 @@ impl App {
         query: &str,
         country: Option<&str>,
     ) -> Result<Location> {
-        self.geocode(query, country, 1)
+        let location = self
+            .geocode(query, country, 1)
             .await?
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow!("no geocoding result for {query:?}"))
+            .ok_or_else(|| anyhow!("no geocoding result for {query:?}"))?;
+        validate_coordinates(location.latitude, location.longitude)
+            .with_context(|| format!("geocoding returned invalid coordinates for {query:?}"))?;
+        Ok(location)
     }
 
     pub(crate) async fn resolve_location(
@@ -198,9 +206,6 @@ impl App {
                 }
                 ForecastKind::Hourly => {
                     query.append_pair("hourly", &HOURLY_VARS.join(","));
-                }
-                ForecastKind::Signal => {
-                    query.append_pair("daily", &DAILY_VARS.join(","));
                 }
             }
         }
@@ -269,7 +274,7 @@ impl App {
     ) -> Result<SignalEnvelope> {
         let resolved = self.resolve_location(location, country).await?;
         let envelope = self
-            .forecast(&resolved, ForecastKind::Signal, days, None)
+            .forecast(&resolved, ForecastKind::Daily, days, None)
             .await?;
         SignalEnvelope::from_forecast(envelope, profile)
     }
@@ -303,7 +308,7 @@ impl App {
                 .resolve_location(&input.location, input.country.as_deref())
                 .await?;
             let envelope = self
-                .forecast(&location, ForecastKind::Signal, days, None)
+                .forecast(&location, ForecastKind::Daily, days, None)
                 .await?;
             SignalEnvelope::from_forecast(envelope, profile)
         }
@@ -425,22 +430,14 @@ impl App {
         {
             let value =
                 serde_json::from_value(value).context("failed to decode cached response")?;
+            debug!(url, "cache hit");
             return Ok(Cached {
                 value,
                 state: CacheState::Hit,
             });
         }
-        let value: Value = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .context("request failed")?
-            .error_for_status()
-            .context("API returned an error status")?
-            .json()
-            .await
-            .context("failed to decode API response")?;
+        debug!(url, refresh = self.refresh, "cache miss");
+        let value = self.request_json_with_retries(url).await?;
         self.cache.put(url, &value)?;
         let state = if self.refresh {
             CacheState::Refresh
@@ -451,11 +448,65 @@ impl App {
         Ok(Cached { value, state })
     }
 
+    async fn request_json_with_retries(&self, url: &str) -> Result<Value> {
+        let mut last_error: Option<anyhow::Error> = None;
+        for attempt in 1..=MAX_REQUEST_ATTEMPTS {
+            match self.request_json_once(url).await {
+                Ok(value) => return Ok(value),
+                Err(error) if attempt < MAX_REQUEST_ATTEMPTS && is_retryable_error(&error) => {
+                    warn!(url, attempt, error = %error, "transient weather request failed; retrying");
+                    last_error = Some(error);
+                    sleep(retry_delay(attempt)).await;
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("weather request failed after {attempt} attempt(s)")
+                    });
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow!("weather request failed"))).with_context(|| {
+            format!("weather request failed after {MAX_REQUEST_ATTEMPTS} attempts")
+        })
+    }
+
+    async fn request_json_once(&self, url: &str) -> Result<Value> {
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .context("request failed")?;
+        let status = response.status();
+        if status.is_server_error() {
+            return Err(anyhow!("API returned transient status {status}"));
+        }
+        response
+            .error_for_status()
+            .context("API returned an error status")?
+            .json()
+            .await
+            .context("failed to decode API response")
+    }
+
     fn append_api_key(&self, url: &mut Url) {
         if let Some(key) = self.api_key.as_deref().filter(|key| !key.is_empty()) {
             url.query_pairs_mut().append_pair("apikey", key);
         }
     }
+}
+
+fn is_retryable_error(error: &anyhow::Error) -> bool {
+    if let Some(error) = error.downcast_ref::<reqwest::Error>() {
+        return error.is_timeout() || error.is_connect() || error.is_request();
+    }
+    error
+        .to_string()
+        .contains("API returned transient status 5")
+}
+
+fn retry_delay(attempt: usize) -> Duration {
+    Duration::from_millis(150 * 2_u64.pow((attempt - 1) as u32))
 }
 
 #[cfg(test)]
