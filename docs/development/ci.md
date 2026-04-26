@@ -7,9 +7,11 @@ CI runs on pull requests and pushes to `master` or `main`.
 - `cargo fmt --check`
 - `cargo clippy --locked --all-targets --all-features -- -D warnings`
 - `cargo test --locked --all-features`
-- `cargo check --locked --all-features` on Rust 1.93.0
 - `cargo deny check`
 - `cargo audit`
+
+The committed `rust-toolchain.toml` pins Rust 1.93.0 and is the source of truth
+for the compiler used by local development and CI.
 
 ## Docs Checks
 

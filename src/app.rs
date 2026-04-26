@@ -8,14 +8,19 @@ use crate::{
     signals::{
         SignalEnvelope, SummaryEnvelope, ThresholdCriteria, ThresholdEnvelope, ThresholdMatch,
     },
-    util::{default_cache_dir, default_config_path, parse_lat_lon, validate_coordinates},
+    util::{
+        default_cache_dir, default_config_path, parse_lat_lon, redact_url, validate_coordinates,
+    },
 };
 use anyhow::{Context, Result, anyhow};
 use chrono::{NaiveDate, Utc};
 use futures::{StreamExt, stream};
+use reqwest::{StatusCode, header};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
+    error::Error,
+    fmt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -98,6 +103,9 @@ impl App {
     pub(crate) async fn new(cli: &Cli) -> Result<Self> {
         let config_path = cli.config.clone().unwrap_or_else(default_config_path);
         let config = Config::load(&config_path)?;
+        validate_base_url(&cli.forecast_base_url, "forecast")?;
+        validate_base_url(&cli.geocode_base_url, "geocoding")?;
+        validate_base_url(&cli.historical_base_url, "historical")?;
         Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(cli.timeout)
@@ -428,15 +436,26 @@ impl App {
         if !self.refresh
             && let Some(value) = self.cache.get(url, ttl)?
         {
-            let value =
-                serde_json::from_value(value).context("failed to decode cached response")?;
-            debug!(url, "cache hit");
-            return Ok(Cached {
-                value,
-                state: CacheState::Hit,
-            });
+            match serde_json::from_value(value) {
+                Ok(value) => {
+                    debug!(url = %redact_url(url), "cache hit");
+                    return Ok(Cached {
+                        value,
+                        state: CacheState::Hit,
+                    });
+                }
+                Err(error) => {
+                    let removed = self.cache.remove(url)?;
+                    warn!(
+                        url = %redact_url(url),
+                        removed,
+                        error = %error,
+                        "cached response failed to decode; evicting and refetching"
+                    );
+                }
+            }
         }
-        debug!(url, refresh = self.refresh, "cache miss");
+        debug!(url = %redact_url(url), refresh = self.refresh, "cache miss");
         let value = self.request_json_with_retries(url).await?;
         self.cache.put(url, &value)?;
         let state = if self.refresh {
@@ -454,9 +473,15 @@ impl App {
             match self.request_json_once(url).await {
                 Ok(value) => return Ok(value),
                 Err(error) if attempt < MAX_REQUEST_ATTEMPTS && is_retryable_error(&error) => {
-                    warn!(url, attempt, error = %error, "transient weather request failed; retrying");
+                    warn!(url = %redact_url(url), attempt, error = %error, "transient weather request failed; retrying");
                     last_error = Some(error);
-                    sleep(retry_delay(attempt)).await;
+                    sleep(
+                        last_error
+                            .as_ref()
+                            .and_then(retry_after)
+                            .unwrap_or_else(|| retry_delay(attempt)),
+                    )
+                    .await;
                 }
                 Err(error) => {
                     return Err(error).with_context(|| {
@@ -478,8 +503,17 @@ impl App {
             .await
             .context("request failed")?;
         let status = response.status();
-        if status.is_server_error() {
-            return Err(anyhow!("API returned transient status {status}"));
+        if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
+            let retry_after = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(parse_retry_after);
+            return Err(TransientStatus {
+                status,
+                retry_after,
+            }
+            .into());
         }
         response
             .error_for_status()
@@ -500,19 +534,55 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
     if let Some(error) = error.downcast_ref::<reqwest::Error>() {
         return error.is_timeout() || error.is_connect() || error.is_request();
     }
+    error.downcast_ref::<TransientStatus>().is_some()
+}
+
+fn retry_after(error: &anyhow::Error) -> Option<Duration> {
     error
-        .to_string()
-        .contains("API returned transient status 5")
+        .downcast_ref::<TransientStatus>()
+        .and_then(|error| error.retry_after)
 }
 
 fn retry_delay(attempt: usize) -> Duration {
     Duration::from_millis(150 * 2_u64.pow((attempt - 1) as u32))
 }
 
+fn parse_retry_after(input: &str) -> Option<Duration> {
+    let seconds = input.trim().parse::<u64>().ok()?;
+    Some(Duration::from_secs(seconds.min(30)))
+}
+
+fn validate_base_url(input: &str, name: &str) -> Result<()> {
+    let url = Url::parse(input).with_context(|| format!("{name} base URL is invalid"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(anyhow!("{name} base URL must use http or https"));
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct TransientStatus {
+    status: StatusCode,
+    retry_after: Option<Duration>,
+}
+
+impl fmt::Display for TransientStatus {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "API returned transient status {}", self.status)
+    }
+}
+
+impl Error for TransientStatus {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DEFAULT_FORECAST_BASE_URL, DEFAULT_GEOCODE_BASE_URL, DEFAULT_HISTORICAL_BASE_URL};
+    use serde_json::json;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
 
     #[test]
     fn parses_batch_locations_with_default_country() {
@@ -530,18 +600,114 @@ mod tests {
         assert_eq!(locations[1].country.as_deref(), Some("FR"));
     }
 
+    #[test]
+    fn validates_base_url_scheme() {
+        assert!(validate_base_url("https://example.com/v1/forecast", "forecast").is_ok());
+        assert!(validate_base_url("http://127.0.0.1:8080/v1/forecast", "forecast").is_ok());
+        assert!(validate_base_url("file:///tmp/forecast", "forecast").is_err());
+    }
+
+    #[test]
+    fn typed_transient_status_is_retryable() {
+        let error = anyhow!(TransientStatus {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            retry_after: Some(Duration::from_secs(1)),
+        });
+        assert!(is_retryable_error(&error));
+        assert_eq!(retry_after(&error), Some(Duration::from_secs(1)));
+    }
+
+    #[tokio::test]
+    async fn retries_429_then_succeeds() {
+        let base_url = spawn_sequence_server(vec![
+            "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 0\r\n\r\n"
+                .to_string(),
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                "{}".len(),
+                "{}"
+            ),
+        ])
+        .await;
+        let app = test_app_with_base(tempfile::tempdir().unwrap().path(), &base_url);
+
+        assert_eq!(
+            app.request_json_with_retries(&base_url).await.unwrap(),
+            json!({})
+        );
+    }
+
+    #[tokio::test]
+    async fn poisoned_cache_entry_is_evicted_and_refetched() {
+        let body = json!({
+            "timezone": "Europe/London",
+            "daily": {"time": ["2026-04-27"], "temperature_2m_max": [20.0]}
+        })
+        .to_string();
+        let base_url = spawn_sequence_server(vec![format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )])
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = test_app_with_base(dir.path(), &base_url);
+        let location = Location {
+            id: None,
+            name: "London".to_string(),
+            country: None,
+            country_code: Some("GB".to_string()),
+            admin1: None,
+            latitude: 51.5,
+            longitude: -0.1,
+            timezone: None,
+            population: None,
+        };
+        let url = format!(
+            "{base_url}?latitude=51.5&longitude=-0.1&forecast_days=1&timezone=auto&daily={}",
+            DAILY_VARS.join("%2C")
+        );
+        app.cache.put(&url, &json!({"bad": "shape"})).unwrap();
+
+        let envelope = app
+            .forecast(&location, ForecastKind::Daily, 1, None)
+            .await
+            .unwrap();
+
+        assert_eq!(envelope.cache, CacheState::Miss);
+        assert!(envelope.daily.is_some());
+    }
+
     fn test_app(root: &Path) -> App {
+        test_app_with_base(root, DEFAULT_FORECAST_BASE_URL)
+    }
+
+    fn test_app_with_base(root: &Path, forecast_base_url: &str) -> App {
         App {
             client: reqwest::Client::new(),
             config: Config::default(),
             config_path: root.join("config.toml"),
             cache: Cache::new(root.join("cache")).unwrap(),
-            forecast_base_url: DEFAULT_FORECAST_BASE_URL.to_string(),
+            forecast_base_url: forecast_base_url.to_string(),
             geocode_base_url: DEFAULT_GEOCODE_BASE_URL.to_string(),
             historical_base_url: DEFAULT_HISTORICAL_BASE_URL.to_string(),
             api_key: None,
             refresh: false,
             cache_ttl: Duration::from_secs(1800),
         }
+    }
+
+    async fn spawn_sequence_server(responses: Vec<String>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for response in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut buffer = [0_u8; 2048];
+                let _ = stream.read(&mut buffer).await.unwrap();
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        format!("http://{address}/v1/forecast")
     }
 }

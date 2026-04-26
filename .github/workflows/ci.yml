@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env:
-      CARGO_BUILD_JOBS: "1"
       RUSTFLAGS: "-C debuginfo=0"
     steps:
       - name: Checkout
@@ -45,7 +44,6 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env:
-      CARGO_BUILD_JOBS: "1"
       CARGO_INCREMENTAL: "0"
       RUSTFLAGS: "-C debuginfo=0"
     steps:
@@ -60,27 +58,6 @@ jobs:
 
       - name: Test
         run: cargo test --locked --all-features
-
-  msrv:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 30
-    env:
-      CARGO_BUILD_JOBS: "1"
-      RUSTFLAGS: "-C debuginfo=0"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-        with:
-          toolchain: 1.93.0
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
-
-      - name: Check MSRV
-        run: cargo check --locked --all-features
 
   docs:
     runs-on: ubuntu-22.04

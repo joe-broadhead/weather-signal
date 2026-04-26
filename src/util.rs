@@ -2,6 +2,7 @@ use crate::APP_NAME;
 use anyhow::{Context, Result, anyhow};
 use chrono::NaiveDate;
 use std::{env, path::PathBuf};
+use url::Url;
 
 pub(crate) fn parse_lat_lon(input: &str) -> Option<(f64, f64)> {
     let (lat, lon) = input.split_once(',')?;
@@ -38,6 +39,26 @@ pub(crate) fn default_cache_dir() -> PathBuf {
     xdg_home("XDG_CACHE_HOME", ".cache").join(APP_NAME)
 }
 
+pub(crate) fn redact_url(input: &str) -> String {
+    Url::parse(input)
+        .map(|mut url| {
+            let pairs = url
+                .query_pairs()
+                .map(|(key, value)| {
+                    let value = if key.eq_ignore_ascii_case("apikey") {
+                        "***".to_string()
+                    } else {
+                        value.into_owned()
+                    };
+                    (key.into_owned(), value)
+                })
+                .collect::<Vec<_>>();
+            url.query_pairs_mut().clear().extend_pairs(pairs);
+            url.to_string()
+        })
+        .unwrap_or_else(|_| "<unparseable-url>".to_string())
+}
+
 fn xdg_home(var: &str, fallback: &str) -> PathBuf {
     env::var_os(var)
         .map(PathBuf::from)
@@ -67,5 +88,13 @@ mod tests {
         assert!(validate_coordinates(91.0, -0.12).is_err());
         assert!(validate_coordinates(51.5, 181.0).is_err());
         assert!(validate_coordinates(f64::NAN, -0.12).is_err());
+    }
+
+    #[test]
+    fn redacts_api_key_query_parameter() {
+        assert_eq!(
+            redact_url("https://example.com/weather?latitude=1&apikey=secret&longitude=2"),
+            "https://example.com/weather?latitude=1&apikey=***&longitude=2"
+        );
     }
 }

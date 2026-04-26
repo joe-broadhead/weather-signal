@@ -70,7 +70,7 @@ impl WeatherMcpServer {
     fn error(error: anyhow::Error) -> String {
         json!({
             "success": false,
-            "error": error.to_string()
+            "error": format!("{error:#}")
         })
         .to_string()
     }

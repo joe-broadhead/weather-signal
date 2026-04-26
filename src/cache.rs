@@ -1,3 +1,4 @@
+use crate::util::redact_url;
 use anyhow::Result;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -13,7 +14,7 @@ use tracing::debug;
 const SCHEMA_VERSION: &str = "v1";
 static CACHE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CacheState {
     Hit,
@@ -53,15 +54,15 @@ impl Cache {
     pub(crate) fn get(&self, url: &str, ttl: Duration) -> Result<Option<Value>> {
         let path = self.key(url);
         if !path.exists() {
-            debug!(url, "cache file missing");
+            debug!(url = %redact_url(url), "cache file missing");
             return Ok(None);
         }
         let modified = fs::metadata(&path)?.modified()?;
         if modified.elapsed().unwrap_or(Duration::MAX) > ttl {
-            debug!(url, path = %path.display(), "cache file expired");
+            debug!(url = %redact_url(url), path = %path.display(), "cache file expired");
             return Ok(None);
         }
-        debug!(url, path = %path.display(), "cache file read");
+        debug!(url = %redact_url(url), path = %path.display(), "cache file read");
         Ok(Some(serde_json::from_str(&fs::read_to_string(path)?)?))
     }
 
@@ -77,8 +78,17 @@ impl Cache {
         fs::rename(&temp_path, path).inspect_err(|_rename_error| {
             let _ = fs::remove_file(&temp_path);
         })?;
-        debug!(url, "cache file written");
+        debug!(url = %redact_url(url), "cache file written");
         Ok(())
+    }
+
+    pub(crate) fn remove(&self, url: &str) -> Result<bool> {
+        let path = self.key(url);
+        if path.exists() {
+            fs::remove_file(path)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn temp_key(&self, path: &Path) -> PathBuf {
