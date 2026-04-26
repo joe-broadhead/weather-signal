@@ -25,7 +25,7 @@ The docs workflow publishes GitHub Pages from `master` or `main`.
 Release automation follows the same branch-and-tag model used in related
 projects:
 
-1. Run `Prepare Release` with a semantic version such as `0.1.0`.
+1. Run `Prepare Release` with a semantic version such as `0.0.0`.
 2. Merge the generated `release/<version>` PR into `master` or `main`.
 3. `Tag Release` creates and pushes `v<version>`.
 4. `Release` validates metadata, builds release binaries, generates checksums

@@ -11,8 +11,15 @@ saved locations, cache-aware execution, and simple derived weather flags.
 
 Core areas:
 
-- `src/main.rs` - CLI parsing, Open-Meteo client, cache/config handling, output
-  rendering, MCP server transports, and demand signal derivation.
+- `src/main.rs` - binary entrypoint and command dispatch.
+- `src/cli.rs` - Clap command, option, and parser definitions.
+- `src/app.rs` - Open-Meteo client workflows and location resolution.
+- `src/cache.rs` - local HTTP response cache.
+- `src/models.rs` - shared data contracts and response envelopes.
+- `src/signals.rs` - demand signals, threshold matching, and summaries.
+- `src/output.rs` - JSON/table/CSV rendering.
+- `src/mcp.rs` - MCP stdio and streamable HTTP transports.
+- `src/util.rs` - small parsing and path helpers.
 - `.github/skills/` - packaged agent skills for CLI usage, demand-signal
   workflows, and saved-location setup.
 - `.github/workflows/` - CI, docs, release prepare/tag/publish automation.
@@ -76,9 +83,10 @@ actionlint .github/workflows/<workflow>.yml
 - TLS should stay on `rustls` unless there is a strong reason to change it.
 - Prefer small, boring dependencies. New runtime dependencies should justify
   their maintenance and supply-chain cost.
-- `src/main.rs` is currently compact by design. If it grows materially, extract
-  modules by behavior (`cli`, `client`, `cache`, `output`, `signals`) rather
-  than by incidental type names.
+- Keep module boundaries behavioral: CLI parsing in `cli`, HTTP/weather
+  workflows in `app`, cache mechanics in `cache`, output formatting in
+  `output`, signal derivation in `signals`, MCP transport/tool routing in
+  `mcp`, and shared contracts in `models`.
 
 ## CLI Contract Rules
 

@@ -1,6 +1,6 @@
 [package]
 name = "weather-signal"
-version = "0.1.0"
+version = "0.0.0"
 rust-version = "1.93"
 edition = "2024"
 description = "Agent-first Open-Meteo CLI and MCP server for weather signals and demand forecasting features"

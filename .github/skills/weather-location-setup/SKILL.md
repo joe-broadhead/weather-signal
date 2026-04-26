@@ -5,7 +5,7 @@ license: MIT
 allowed-tools: "Bash Read"
 metadata:
   owner: "weather-signal"
-  version: "0.1.0"
+  version: "0.0.0"
 ---
 
 # Weather Location Setup Skill

@@ -1,0 +1,496 @@
+use crate::{
+    cache::{Cache, CacheState},
+    cli::{BatchPlaces, BatchSignalArgs, Cli, SignalProfile, SummaryArgs, ThresholdArgs},
+    models::{
+        BatchLocationInput, BatchLocationRecord, BatchSignalEnvelope, BatchSignalItem, Cached,
+        Config, ForecastEnvelope, ForecastKind, ForecastResponse, GeocodeResponse, Location,
+    },
+    signals::{
+        SignalEnvelope, SummaryEnvelope, ThresholdCriteria, ThresholdEnvelope, ThresholdMatch,
+    },
+    util::{default_cache_dir, default_config_path, parse_lat_lon, validate_coordinates},
+};
+use anyhow::{Context, Result, anyhow};
+use chrono::{NaiveDate, Utc};
+use futures::{StreamExt, stream};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use url::Url;
+
+const CURRENT_VARS: &[&str] = &[
+    "temperature_2m",
+    "relative_humidity_2m",
+    "apparent_temperature",
+    "precipitation",
+    "rain",
+    "showers",
+    "snowfall",
+    "weather_code",
+    "cloud_cover",
+    "wind_speed_10m",
+    "wind_gusts_10m",
+];
+
+const HOURLY_VARS: &[&str] = &[
+    "temperature_2m",
+    "apparent_temperature",
+    "precipitation_probability",
+    "precipitation",
+    "rain",
+    "weather_code",
+    "cloud_cover",
+    "wind_speed_10m",
+    "wind_gusts_10m",
+    "is_day",
+];
+
+const DAILY_VARS: &[&str] = &[
+    "weather_code",
+    "temperature_2m_max",
+    "temperature_2m_min",
+    "apparent_temperature_max",
+    "apparent_temperature_min",
+    "precipitation_sum",
+    "precipitation_hours",
+    "precipitation_probability_max",
+    "wind_speed_10m_max",
+    "wind_gusts_10m_max",
+    "sunshine_duration",
+    "uv_index_max",
+];
+
+const HISTORICAL_DAILY_VARS: &[&str] = &[
+    "weather_code",
+    "temperature_2m_max",
+    "temperature_2m_min",
+    "apparent_temperature_max",
+    "apparent_temperature_min",
+    "precipitation_sum",
+    "rain_sum",
+    "precipitation_hours",
+    "wind_speed_10m_max",
+    "wind_gusts_10m_max",
+    "sunshine_duration",
+];
+
+#[derive(Clone)]
+pub(crate) struct App {
+    pub(crate) client: reqwest::Client,
+    pub(crate) config: Config,
+    pub(crate) config_path: PathBuf,
+    pub(crate) cache: Cache,
+    pub(crate) forecast_base_url: String,
+    pub(crate) geocode_base_url: String,
+    pub(crate) historical_base_url: String,
+    pub(crate) api_key: Option<String>,
+    pub(crate) refresh: bool,
+    pub(crate) cache_ttl: Duration,
+}
+
+impl App {
+    pub(crate) async fn new(cli: &Cli) -> Result<Self> {
+        let config_path = cli.config.clone().unwrap_or_else(default_config_path);
+        let config = Config::load(&config_path)?;
+        Ok(Self {
+            client: reqwest::Client::builder()
+                .timeout(cli.timeout)
+                .connect_timeout(Duration::from_secs(10))
+                .build()
+                .context("failed to build HTTP client")?,
+            config,
+            config_path,
+            cache: Cache::new(default_cache_dir())?,
+            forecast_base_url: cli.forecast_base_url.clone(),
+            geocode_base_url: cli.geocode_base_url.clone(),
+            historical_base_url: cli.historical_base_url.clone(),
+            api_key: cli.api_key.clone(),
+            refresh: cli.refresh,
+            cache_ttl: cli.cache_ttl,
+        })
+    }
+
+    pub(crate) async fn geocode(
+        &self,
+        query: &str,
+        country: Option<&str>,
+        count: u16,
+    ) -> Result<Vec<Location>> {
+        let mut url = Url::parse(&self.geocode_base_url)?;
+        url.query_pairs_mut()
+            .append_pair("name", query)
+            .append_pair("count", &count.to_string())
+            .append_pair("language", "en")
+            .append_pair("format", "json");
+        if let Some(country) = country {
+            url.query_pairs_mut().append_pair("countryCode", country);
+        }
+        self.append_api_key(&mut url);
+
+        let response: GeocodeResponse = self
+            .get_cached(url.as_str(), Duration::from_secs(30 * 24 * 60 * 60))
+            .await?
+            .value;
+        Ok(response.results.unwrap_or_default())
+    }
+
+    pub(crate) async fn resolve_geocoded(
+        &self,
+        query: &str,
+        country: Option<&str>,
+    ) -> Result<Location> {
+        self.geocode(query, country, 1)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("no geocoding result for {query:?}"))
+    }
+
+    pub(crate) async fn resolve_location(
+        &self,
+        input: &str,
+        country: Option<&str>,
+    ) -> Result<Location> {
+        if let Some(place) = self.config.places.get(input) {
+            return Ok(place.clone());
+        }
+        if let Some((lat, lon)) = parse_lat_lon(input) {
+            validate_coordinates(lat, lon)?;
+            return Ok(Location {
+                id: None,
+                name: input.to_string(),
+                country: None,
+                country_code: None,
+                admin1: None,
+                latitude: lat,
+                longitude: lon,
+                timezone: None,
+                population: None,
+            });
+        }
+        self.resolve_geocoded(input, country).await
+    }
+
+    pub(crate) async fn forecast(
+        &self,
+        location: &Location,
+        kind: ForecastKind,
+        days: u8,
+        hourly_limit: Option<u16>,
+    ) -> Result<ForecastEnvelope> {
+        let mut url = Url::parse(&self.forecast_base_url)?;
+        {
+            let mut query = url.query_pairs_mut();
+            query
+                .append_pair("latitude", &location.latitude.to_string())
+                .append_pair("longitude", &location.longitude.to_string())
+                .append_pair("forecast_days", &days.to_string())
+                .append_pair("timezone", "auto");
+            match kind {
+                ForecastKind::Current => {
+                    query.append_pair("current", &CURRENT_VARS.join(","));
+                }
+                ForecastKind::Daily => {
+                    query.append_pair("daily", &DAILY_VARS.join(","));
+                }
+                ForecastKind::Hourly => {
+                    query.append_pair("hourly", &HOURLY_VARS.join(","));
+                }
+                ForecastKind::Signal => {
+                    query.append_pair("daily", &DAILY_VARS.join(","));
+                }
+            }
+        }
+        self.append_api_key(&mut url);
+
+        let cached: Cached<ForecastResponse> =
+            self.get_cached(url.as_str(), self.cache_ttl).await?;
+        let mut response = cached.value;
+        if let (Some(hours), Some(hourly)) = (hourly_limit, response.hourly.as_mut()) {
+            hourly.truncate(usize::from(hours));
+        }
+
+        Ok(ForecastEnvelope {
+            source: "open-meteo".to_string(),
+            location: location.clone(),
+            fetched_at: Utc::now(),
+            cache: cached.state,
+            timezone: response.timezone,
+            current: response.current,
+            hourly: response.hourly,
+            daily: response.daily,
+        })
+    }
+
+    pub(crate) async fn historical(
+        &self,
+        location: &Location,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> Result<ForecastEnvelope> {
+        let mut url = Url::parse(&self.historical_base_url)?;
+        {
+            let mut query = url.query_pairs_mut();
+            query
+                .append_pair("latitude", &location.latitude.to_string())
+                .append_pair("longitude", &location.longitude.to_string())
+                .append_pair("start_date", &start.to_string())
+                .append_pair("end_date", &end.to_string())
+                .append_pair("daily", &HISTORICAL_DAILY_VARS.join(","))
+                .append_pair("timezone", "auto");
+        }
+        self.append_api_key(&mut url);
+
+        let cached: Cached<ForecastResponse> = self
+            .get_cached(url.as_str(), Duration::from_secs(24 * 60 * 60))
+            .await?;
+        let response = cached.value;
+        Ok(ForecastEnvelope {
+            source: "open-meteo-archive".to_string(),
+            location: location.clone(),
+            fetched_at: Utc::now(),
+            cache: cached.state,
+            timezone: response.timezone,
+            current: None,
+            hourly: None,
+            daily: response.daily,
+        })
+    }
+
+    pub(crate) async fn signal_for(
+        &self,
+        location: &str,
+        country: Option<&str>,
+        days: u8,
+        profile: SignalProfile,
+    ) -> Result<SignalEnvelope> {
+        let resolved = self.resolve_location(location, country).await?;
+        let envelope = self
+            .forecast(&resolved, ForecastKind::Signal, days, None)
+            .await?;
+        SignalEnvelope::from_forecast(envelope, profile)
+    }
+
+    pub(crate) async fn batch_signal(&self, args: &BatchSignalArgs) -> Result<BatchSignalEnvelope> {
+        let inputs = self.batch_location_inputs(args)?;
+        let app = self.clone();
+        let items = stream::iter(inputs.into_iter().map(|input| {
+            let app = app.clone();
+            async move { app.batch_signal_item(input, args.days, args.profile).await }
+        }))
+        .buffer_unordered(args.concurrency)
+        .collect()
+        .await;
+        Ok(BatchSignalEnvelope {
+            source: "open-meteo".to_string(),
+            fetched_at: Utc::now(),
+            profile: args.profile.to_string(),
+            items,
+        })
+    }
+
+    async fn batch_signal_item(
+        &self,
+        input: BatchLocationInput,
+        days: u8,
+        profile: SignalProfile,
+    ) -> BatchSignalItem {
+        let result = async {
+            let location = self
+                .resolve_location(&input.location, input.country.as_deref())
+                .await?;
+            let envelope = self
+                .forecast(&location, ForecastKind::Signal, days, None)
+                .await?;
+            SignalEnvelope::from_forecast(envelope, profile)
+        }
+        .await;
+
+        match result {
+            Ok(signal) => BatchSignalItem {
+                input: input.location,
+                country: input.country,
+                signal: Some(signal),
+                error: None,
+            },
+            Err(error) => BatchSignalItem {
+                input: input.location,
+                country: input.country,
+                signal: None,
+                error: Some(error.to_string()),
+            },
+        }
+    }
+
+    fn batch_location_inputs(&self, args: &BatchSignalArgs) -> Result<Vec<BatchLocationInput>> {
+        match (args.places, args.input.as_ref()) {
+            (Some(BatchPlaces::All), None) => {
+                if self.config.places.is_empty() {
+                    return Err(anyhow!("no saved places found"));
+                }
+                Ok(self
+                    .config
+                    .places
+                    .keys()
+                    .map(|alias| BatchLocationInput {
+                        location: alias.clone(),
+                        country: None,
+                    })
+                    .collect())
+            }
+            (None, Some(path)) => self.batch_locations_from_csv(path, args.country.as_deref()),
+            (None, None) => Err(anyhow!(
+                "batch signal requires --places all or --input <csv>"
+            )),
+            (Some(_), Some(_)) => Err(anyhow!("use either --places all or --input, not both")),
+        }
+    }
+
+    fn batch_locations_from_csv(
+        &self,
+        path: &Path,
+        default_country: Option<&str>,
+    ) -> Result<Vec<BatchLocationInput>> {
+        let mut reader = csv::Reader::from_path(path)
+            .with_context(|| format!("failed to read batch input {}", path.display()))?;
+        let mut locations = Vec::new();
+        for record in reader.deserialize::<BatchLocationRecord>() {
+            let record = record.with_context(|| {
+                format!("failed to parse batch input record in {}", path.display())
+            })?;
+            locations.push(BatchLocationInput {
+                location: record.location,
+                country: record
+                    .country
+                    .or_else(|| default_country.map(str::to_string)),
+            });
+        }
+        if locations.is_empty() {
+            return Err(anyhow!("batch input has no locations"));
+        }
+        Ok(locations)
+    }
+
+    pub(crate) async fn threshold(&self, args: &ThresholdArgs) -> Result<ThresholdEnvelope> {
+        let criteria = ThresholdCriteria::from_args(args)?;
+        let signal = self
+            .signal_for(
+                &args.location,
+                args.country.as_deref(),
+                args.days,
+                SignalProfile::Demand,
+            )
+            .await?;
+        let matches = signal
+            .days
+            .iter()
+            .filter_map(|day| {
+                let reasons = criteria.match_reasons(day);
+                (!reasons.is_empty()).then(|| ThresholdMatch {
+                    date: day.date.clone(),
+                    reasons,
+                    signal: day.clone(),
+                })
+            })
+            .collect();
+        Ok(ThresholdEnvelope {
+            source: signal.source,
+            location: signal.location,
+            fetched_at: signal.fetched_at,
+            cache: signal.cache,
+            timezone: signal.timezone,
+            criteria,
+            matches,
+        })
+    }
+
+    pub(crate) async fn summary(&self, args: &SummaryArgs) -> Result<SummaryEnvelope> {
+        let signal = self
+            .signal_for(
+                &args.location,
+                args.country.as_deref(),
+                args.days,
+                args.profile,
+            )
+            .await?;
+        Ok(SummaryEnvelope::from_signal(signal))
+    }
+
+    async fn get_cached<T: DeserializeOwned>(&self, url: &str, ttl: Duration) -> Result<Cached<T>> {
+        if !self.refresh
+            && let Some(value) = self.cache.get(url, ttl)?
+        {
+            let value =
+                serde_json::from_value(value).context("failed to decode cached response")?;
+            return Ok(Cached {
+                value,
+                state: CacheState::Hit,
+            });
+        }
+        let value: Value = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .context("request failed")?
+            .error_for_status()
+            .context("API returned an error status")?
+            .json()
+            .await
+            .context("failed to decode API response")?;
+        self.cache.put(url, &value)?;
+        let state = if self.refresh {
+            CacheState::Refresh
+        } else {
+            CacheState::Miss
+        };
+        let value = serde_json::from_value(value).context("failed to decode API response")?;
+        Ok(Cached { value, state })
+    }
+
+    fn append_api_key(&self, url: &mut Url) {
+        if let Some(key) = self.api_key.as_deref().filter(|key| !key.is_empty()) {
+            url.query_pairs_mut().append_pair("apikey", key);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DEFAULT_FORECAST_BASE_URL, DEFAULT_GEOCODE_BASE_URL, DEFAULT_HISTORICAL_BASE_URL};
+
+    #[test]
+    fn parses_batch_locations_with_default_country() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("places.csv");
+        std::fs::write(&path, "location,country\nLondon,\nParis,FR\n").unwrap();
+        let app = test_app(dir.path());
+
+        let locations = app.batch_locations_from_csv(&path, Some("GB")).unwrap();
+
+        assert_eq!(locations.len(), 2);
+        assert_eq!(locations[0].location, "London");
+        assert_eq!(locations[0].country.as_deref(), Some("GB"));
+        assert_eq!(locations[1].location, "Paris");
+        assert_eq!(locations[1].country.as_deref(), Some("FR"));
+    }
+
+    fn test_app(root: &Path) -> App {
+        App {
+            client: reqwest::Client::new(),
+            config: Config::default(),
+            config_path: root.join("config.toml"),
+            cache: Cache::new(root.join("cache")).unwrap(),
+            forecast_base_url: DEFAULT_FORECAST_BASE_URL.to_string(),
+            geocode_base_url: DEFAULT_GEOCODE_BASE_URL.to_string(),
+            historical_base_url: DEFAULT_HISTORICAL_BASE_URL.to_string(),
+            api_key: None,
+            refresh: false,
+            cache_ttl: Duration::from_secs(1800),
+        }
+    }
+}
