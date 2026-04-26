@@ -1,0 +1,21 @@
+# Security Policy
+
+## Reporting a Vulnerability
+
+Please report security issues privately through GitHub Security Advisories for
+the repository. If advisories are unavailable, contact the maintainer directly
+before opening a public issue.
+
+Do not include API keys, private endpoint URLs, customer locations, or business
+demand data in public issues, pull requests, logs, screenshots, or examples.
+
+## Supported Versions
+
+Until the first stable release, security fixes target the latest published
+release and the default branch.
+
+## MCP HTTP
+
+The streamable HTTP MCP transport has no built-in authentication. Keep it bound
+to loopback or place it behind an authenticating reverse proxy before exposing
+it to a network.

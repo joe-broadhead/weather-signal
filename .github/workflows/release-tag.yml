@@ -1,0 +1,67 @@
+name: Tag Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+      - main
+
+jobs:
+  tag:
+    if: >
+      github.event.pull_request.merged == true &&
+      (startsWith(github.event.pull_request.head.ref, 'release/') ||
+       startsWith(github.event.pull_request.head.ref, 'hotfix/'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Verify release tag token
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+        run: |
+          if [ -z "${RELEASE_TAG_TOKEN}" ]; then
+            echo "Missing secret RELEASE_TAG_TOKEN."
+            echo "Set it to a PAT or GitHub App token with contents:write."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TAG_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create and push tag
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          version_raw="${BRANCH#*/}"
+          if ! [[ "${version_raw}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping tag: branch is not a release/hotfix semantic version (${BRANCH})."
+            exit 0
+          fi
+
+          version="${version_raw#v}"
+          tag="v${version}"
+          if git rev-parse "${tag}" >/dev/null 2>&1; then
+            echo "Tag already exists: ${tag}"
+            exit 0
+          fi
+
+          if [ -z "${MERGE_SHA}" ]; then
+            echo "Missing merge commit SHA."
+            exit 1
+          fi
+
+          git tag -a "${tag}" "${MERGE_SHA}" -m "Release ${tag}"
+          git push origin "${tag}"
