@@ -33,19 +33,13 @@ struct WeatherMcpServer {
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for WeatherMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::default(),
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability::default()),
-                ..ServerCapabilities::default()
-            },
-            server_info: Implementation {
-                name: APP_NAME.into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                ..Implementation::default()
-            },
-            instructions: Some("Weather Signal MCP server. Use weather_summary for a compact forecast-window overview, demand_signal for daily demand features, threshold_days for decision rules, and historical_weather for backtesting features.".into()),
-        }
+        let mut capabilities = ServerCapabilities::default();
+        capabilities.tools = Some(ToolsCapability::default());
+
+        ServerInfo::new(capabilities)
+            .with_protocol_version(ProtocolVersion::default())
+            .with_server_info(Implementation::new(APP_NAME, env!("CARGO_PKG_VERSION")))
+            .with_instructions("Weather Signal MCP server. Use weather_summary for a compact forecast-window overview, demand_signal for daily demand features, threshold_days for decision rules, and historical_weather for backtesting features.")
     }
 }
 
@@ -392,12 +386,11 @@ async fn serve_mcp_http(
         StreamableHttpService::new(
             move || Ok::<WeatherMcpServer, io::Error>(server.clone()),
             Arc::default(),
-            StreamableHttpServerConfig {
-                stateful_mode: args.http_stateful_mode,
-                sse_keep_alive: Some(Duration::from_secs(30)),
-                sse_retry: Some(Duration::from_secs(5)),
-                cancellation_token: shutdown.clone(),
-            },
+            StreamableHttpServerConfig::default()
+                .with_stateful_mode(args.http_stateful_mode)
+                .with_sse_keep_alive(Some(Duration::from_secs(30)))
+                .with_sse_retry(Some(Duration::from_secs(5)))
+                .with_cancellation_token(shutdown.clone()),
         );
 
     let base_app = Router::new()
