@@ -3,13 +3,13 @@
 ## Installer
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/HEAD/scripts/install.sh | bash
 ```
 
 Install the binary and Weather Signal agent skills:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/master/scripts/install.sh | bash -s -- --install-skills
+curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/HEAD/scripts/install.sh | bash -s -- --install-skills
 ```
 
 Installer options:
