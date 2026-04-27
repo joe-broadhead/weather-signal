@@ -103,7 +103,9 @@ async fn run(cli: Cli) -> Result<()> {
         } => {
             let mut config = app.config.clone();
             let removed = config.places.remove(&cmd.alias).is_some();
-            config.save(&app.config_path)?;
+            if removed {
+                config.save(&app.config_path)?;
+            }
             render(
                 &cli,
                 &json!({"removed": removed}),

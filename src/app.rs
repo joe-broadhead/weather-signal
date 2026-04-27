@@ -84,6 +84,7 @@ const HISTORICAL_DAILY_VARS: &[&str] = &[
     "sunshine_duration",
 ];
 const MAX_REQUEST_ATTEMPTS: usize = 3;
+const MAX_RESPONSE_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Clone)]
 pub(crate) struct App {
@@ -515,12 +516,30 @@ impl App {
             }
             .into());
         }
-        response
+        let mut response = response
             .error_for_status()
-            .context("API returned an error status")?
-            .json()
+            .context("API returned an error status")?;
+        if let Some(length) = response.content_length()
+            && length > MAX_RESPONSE_BYTES as u64
+        {
+            return Err(anyhow!(
+                "API response is too large: {length} bytes exceeds {MAX_RESPONSE_BYTES} byte limit"
+            ));
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
             .await
-            .context("failed to decode API response")
+            .context("failed to read API response body")?
+        {
+            if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                return Err(anyhow!(
+                    "API response is too large: exceeds {MAX_RESPONSE_BYTES} byte limit"
+                ));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&body).context("failed to decode API response")
     }
 
     fn append_api_key(&self, url: &mut Url) {
@@ -532,7 +551,7 @@ impl App {
 
 fn is_retryable_error(error: &anyhow::Error) -> bool {
     if let Some(error) = error.downcast_ref::<reqwest::Error>() {
-        return error.is_timeout() || error.is_connect() || error.is_request();
+        return error.is_timeout() || error.is_connect();
     }
     error.downcast_ref::<TransientStatus>().is_some()
 }
@@ -548,8 +567,18 @@ fn retry_delay(attempt: usize) -> Duration {
 }
 
 fn parse_retry_after(input: &str) -> Option<Duration> {
-    let seconds = input.trim().parse::<u64>().ok()?;
-    Some(Duration::from_secs(seconds.min(30)))
+    let value = input.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds.min(30)));
+    }
+
+    let retry_at = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+    retry_at
+        .with_timezone(&Utc)
+        .signed_duration_since(Utc::now())
+        .to_std()
+        .ok()
+        .map(|duration| duration.min(Duration::from_secs(30)))
 }
 
 fn validate_base_url(input: &str, name: &str) -> Result<()> {
@@ -617,6 +646,17 @@ mod tests {
         assert_eq!(retry_after(&error), Some(Duration::from_secs(1)));
     }
 
+    #[test]
+    fn parses_retry_after_seconds_and_http_dates() {
+        assert_eq!(parse_retry_after("5"), Some(Duration::from_secs(5)));
+        assert_eq!(parse_retry_after("999"), Some(Duration::from_secs(30)));
+        assert_eq!(
+            parse_retry_after("Wed, 21 Oct 2099 07:28:00 GMT"),
+            Some(Duration::from_secs(30))
+        );
+        assert_eq!(parse_retry_after("not a retry-after value"), None);
+    }
+
     #[tokio::test]
     async fn retries_429_then_succeeds() {
         let base_url = spawn_sequence_server(vec![
@@ -635,6 +675,19 @@ mod tests {
             app.request_json_with_retries(&base_url).await.unwrap(),
             json!({})
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_content_length() {
+        let base_url = spawn_sequence_server(vec![format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
+            MAX_RESPONSE_BYTES + 1
+        )])
+        .await;
+        let app = test_app_with_base(tempfile::tempdir().unwrap().path(), &base_url);
+        let error = app.request_json_once(&base_url).await.unwrap_err();
+
+        assert!(format!("{error:#}").contains("API response is too large"));
     }
 
     #[tokio::test]

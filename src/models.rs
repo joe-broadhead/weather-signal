@@ -3,7 +3,15 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    process,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+static CONFIG_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) enum ForecastKind {
     Current,
@@ -37,8 +45,30 @@ impl Config {
             fs::create_dir_all(parent)?;
         }
         let text = toml::to_string_pretty(self)?;
-        fs::write(path, text).with_context(|| format!("failed to write config {}", path.display()))
+        let temp_path = config_temp_path(path);
+        fs::write(&temp_path, text)
+            .with_context(|| format!("failed to write temporary config {}", temp_path.display()))?;
+        #[cfg(windows)]
+        if path.exists() {
+            fs::remove_file(path)
+                .with_context(|| format!("failed to replace config {}", path.display()))?;
+        }
+        if let Err(error) = fs::rename(&temp_path, path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(error)
+                .with_context(|| format!("failed to commit config {}", path.display()));
+        }
+        Ok(())
     }
+}
+
+fn config_temp_path(path: &Path) -> PathBuf {
+    let counter = CONFIG_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    path.with_file_name(format!(".{file_name}.{}.{}.tmp", process::id(), counter))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -171,5 +201,20 @@ mod tests {
         let loaded = Config::load(&path).unwrap();
 
         assert_eq!(loaded.places["london"].country_code.as_deref(), Some("GB"));
+    }
+
+    #[test]
+    fn config_save_does_not_leave_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Config::default().save(&path).unwrap();
+
+        let temp_files = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+
+        assert_eq!(temp_files, 0);
     }
 }

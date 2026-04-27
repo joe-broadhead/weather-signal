@@ -36,6 +36,7 @@ pub(crate) struct Cli {
         long,
         global = true,
         env = "OPEN_METEO_API_KEY",
+        hide_env_values = true,
         help = "Open-Meteo API key for commercial endpoints"
     )]
     pub(crate) api_key: Option<String>,
@@ -369,6 +370,7 @@ pub(crate) fn parse_batch_concurrency(input: &str) -> Result<usize, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
 
     #[test]
     fn parses_batch_concurrency_bounds() {
@@ -377,5 +379,14 @@ mod tests {
         assert!(parse_batch_concurrency("0").is_err());
         assert!(parse_batch_concurrency("33").is_err());
         assert!(parse_batch_concurrency("many").is_err());
+    }
+
+    #[test]
+    fn api_key_env_value_is_hidden_from_help() {
+        let mut command = Cli::command();
+        let help = command.render_long_help().to_string();
+
+        assert!(help.contains("OPEN_METEO_API_KEY"));
+        assert!(!help.contains("OPEN_METEO_API_KEY="));
     }
 }
