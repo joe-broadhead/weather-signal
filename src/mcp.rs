@@ -20,7 +20,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{io, sync::Arc, time::Duration};
+use std::{io, net::IpAddr, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
@@ -431,7 +431,13 @@ fn warn_if_public_http_bind(host: &str, port: u16, path: &str) {
 }
 
 fn is_loopback_host(host: &str) -> bool {
-    matches!(host.trim(), "127.0.0.1" | "localhost" | "::1")
+    let host = host.trim();
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    host.parse::<IpAddr>()
+        .map(|address| address.is_loopback())
+        .unwrap_or(false)
 }
 
 async fn http_liveness() -> (StatusCode, Json<Value>) {
@@ -493,6 +499,7 @@ mod tests {
     #[test]
     fn identifies_loopback_http_hosts() {
         assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("127.0.0.2"));
         assert!(is_loopback_host("localhost"));
         assert!(is_loopback_host("::1"));
         assert!(!is_loopback_host("0.0.0.0"));

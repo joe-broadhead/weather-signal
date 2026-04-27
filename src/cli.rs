@@ -28,7 +28,7 @@ pub(crate) struct Cli {
         help = "Bypass cache reads and write fresh API responses"
     )]
     pub(crate) refresh: bool,
-    #[arg(long, global = true, default_value = "30m", value_parser = parse_duration, help = "Forecast cache TTL, such as 10m or 1h")]
+    #[arg(long, global = true, default_value = "30m", value_parser = parse_duration, help = "Forecast cache TTL, such as 10m or 1h; geocoding and historical archive use fixed TTLs")]
     pub(crate) cache_ttl: Duration,
     #[arg(long, global = true, default_value = "30s", value_parser = parse_duration, help = "HTTP request timeout, such as 15s")]
     pub(crate) timeout: Duration,

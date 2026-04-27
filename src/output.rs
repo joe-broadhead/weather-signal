@@ -78,8 +78,17 @@ fn to_table(data: TableData<'_>) -> Result<String> {
         }
         TableData::BatchSignal(batch) => {
             table.set_header([
-                "Input", "Location", "Country", "Date", "Max C", "Min C", "Rain %", "Rain mm",
-                "Flags", "Error",
+                "Input",
+                "Location",
+                "Country Code",
+                "Requested Country",
+                "Date",
+                "Max C",
+                "Min C",
+                "Rain %",
+                "Rain mm",
+                "Flags",
+                "Error",
             ]);
             for item in &batch.items {
                 if let Some(signal) = &item.signal {
@@ -88,6 +97,7 @@ fn to_table(data: TableData<'_>) -> Result<String> {
                             item.input.clone(),
                             signal.location.name.clone(),
                             signal.location.country_code.clone().unwrap_or_default(),
+                            item.requested_country.clone().unwrap_or_default(),
                             day.date.clone(),
                             fmt_opt(day.temp_max_c),
                             fmt_opt(day.temp_min_c),
@@ -103,7 +113,8 @@ fn to_table(data: TableData<'_>) -> Result<String> {
                     table.add_row([
                         item.input.clone(),
                         String::new(),
-                        item.country.clone().unwrap_or_default(),
+                        String::new(),
+                        item.requested_country.clone().unwrap_or_default(),
                         String::new(),
                         String::new(),
                         String::new(),
@@ -220,6 +231,7 @@ fn to_csv(data: TableData<'_>) -> Result<()> {
                 "input",
                 "location",
                 "country_code",
+                "requested_country",
                 "date",
                 "temp_max_c",
                 "temp_min_c",
@@ -237,6 +249,7 @@ fn to_csv(data: TableData<'_>) -> Result<()> {
                             &item.input,
                             &signal.location.name,
                             signal.location.country_code.as_deref().unwrap_or(""),
+                            item.requested_country.as_deref().unwrap_or(""),
                             &day.date,
                             &fmt_opt(day.temp_max_c),
                             &fmt_opt(day.temp_min_c),
@@ -254,7 +267,8 @@ fn to_csv(data: TableData<'_>) -> Result<()> {
                     writer.write_record([
                         &item.input,
                         "",
-                        item.country.as_deref().unwrap_or(""),
+                        "",
+                        item.requested_country.as_deref().unwrap_or(""),
                         "",
                         "",
                         "",
