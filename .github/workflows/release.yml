@@ -157,6 +157,7 @@ jobs:
           fi
 
       - name: Build release binary
+        shell: bash
         env:
           TARGET_TRIPLE: ${{ matrix.target }}
         run: cargo build --locked --release --all-features --target "${TARGET_TRIPLE}"
