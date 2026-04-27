@@ -199,6 +199,27 @@ latest_release_tag() {
     | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
+installed_binary_release_tag() {
+  local binary="${INSTALL_DIR}/weather-signal${ext:-}"
+  local version_output=""
+  local version=""
+
+  if [[ ! -x "${binary}" ]]; then
+    return 0
+  fi
+
+  version_output="$("${binary}" --version 2>/dev/null || true)"
+  version="$(printf '%s\n' "${version_output}" | awk 'NR == 1 {print $2}')"
+  if [[ -z "${version}" ]]; then
+    return 0
+  fi
+
+  case "${version}" in
+    v*) printf '%s\n' "${version}" ;;
+    *) printf 'v%s\n' "${version}" ;;
+  esac
+}
+
 list_standalone_skills() {
   local skills_source="$1"
   find "${skills_source}" -mindepth 1 -maxdepth 1 -type d \
@@ -271,6 +292,7 @@ install_skills_from_ref() {
 
 resolve_skills_ref() {
   local detected_latest_tag=""
+  local installed_tag=""
 
   if [[ "${VERSION}" != "latest" ]]; then
     printf '%s\n' "${VERSION}"
@@ -279,7 +301,13 @@ resolve_skills_ref() {
 
   detected_latest_tag="$(latest_release_tag)"
   if [[ -z "${detected_latest_tag}" ]]; then
-    echo "Could not resolve latest release tag for skills installation." >&2
+    installed_tag="$(installed_binary_release_tag)"
+    if [[ -n "${installed_tag}" ]]; then
+      echo "Could not resolve latest release tag; falling back to installed binary version ${installed_tag} for skills." >&2
+      printf '%s\n' "${installed_tag}"
+      return 0
+    fi
+    echo "Could not resolve latest release tag or infer the installed binary version for skills installation." >&2
     echo "Set WEATHER_SIGNAL_VERSION to an explicit release tag, or retry after GitHub is reachable." >&2
     return 1
   fi

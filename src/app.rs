@@ -293,13 +293,23 @@ impl App {
     pub(crate) async fn batch_signal(&self, args: &BatchSignalArgs) -> Result<BatchSignalEnvelope> {
         let inputs = self.batch_location_inputs(args)?;
         let app = self.clone();
-        let items = stream::iter(inputs.into_iter().map(|input| {
+        let mut indexed_items = stream::iter(inputs.into_iter().enumerate().map(|(idx, input)| {
             let app = app.clone();
-            async move { app.batch_signal_item(input, args.days, args.profile).await }
+            async move {
+                (
+                    idx,
+                    app.batch_signal_item(input, args.days, args.profile).await,
+                )
+            }
         }))
-        .buffered(args.concurrency)
-        .collect()
+        .buffer_unordered(args.concurrency)
+        .collect::<Vec<_>>()
         .await;
+        indexed_items.sort_by_key(|(idx, _)| *idx);
+        let items = indexed_items
+            .into_iter()
+            .map(|(_, item)| item)
+            .collect::<Vec<_>>();
         Ok(BatchSignalEnvelope {
             source: "open-meteo".to_string(),
             fetched_at: Utc::now(),
