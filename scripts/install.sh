@@ -145,17 +145,20 @@ download_repo_archive() {
   local archive_url="https://api.github.com/repos/${REPO_SLUG}/tarball/${ref}"
 
   if [[ -n "${DOWNLOAD_TOKEN}" ]]; then
-    curl -fsSL \
+    if curl -fsSL \
       -H "Authorization: Bearer ${DOWNLOAD_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
       "${archive_url}" \
-      -o "${out}"
-  else
-    curl -fsSL \
-      -H "Accept: application/vnd.github+json" \
-      "${archive_url}" \
-      -o "${out}"
+      -o "${out}"; then
+      return 0
+    fi
+    echo "Authenticated archive download failed for ref '${ref}'; retrying without token." >&2
   fi
+
+  curl -fsSL \
+    -H "Accept: application/vnd.github+json" \
+    "${archive_url}" \
+    -o "${out}"
 }
 
 repo_default_branch() {
