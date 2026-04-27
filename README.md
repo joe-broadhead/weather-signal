@@ -70,6 +70,16 @@ Example output shape:
 
 ## Installation
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/master/scripts/install.sh | bash
+```
+
+Install the binary and Weather Signal agent skills:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/master/scripts/install.sh | bash -s -- --install-skills
+```
+
 ### Prebuilt Binaries
 
 Release assets are published from the GitHub Release workflow with checksums,

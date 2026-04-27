@@ -1,5 +1,29 @@
 # Installation
 
+## Installer
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/master/scripts/install.sh | bash
+```
+
+Install the binary and Weather Signal agent skills:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/joe-broadhead/weather-signal/master/scripts/install.sh | bash -s -- --install-skills
+```
+
+Installer options:
+
+```bash
+scripts/install.sh --install-dir "$HOME/.local/bin"
+scripts/install.sh --install-skills --skills-dir "$HOME/.agents/skills"
+scripts/install.sh --install-skills --skill weather-signal
+```
+
+Environment overrides include `WEATHER_SIGNAL_VERSION`,
+`WEATHER_SIGNAL_INSTALL_DIR`, `WEATHER_SIGNAL_INSTALL_SKILLS`,
+`WEATHER_SIGNAL_SKILLS_DIR`, and `WEATHER_SIGNAL_GITHUB_TOKEN`.
+
 ## Prebuilt Binaries
 
 Release assets are published from the GitHub Release workflow with checksums,
