@@ -41,14 +41,15 @@ impl Config {
     }
 
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
+        let save_path = config_save_path(path)?;
+        if let Some(parent) = save_path.parent() {
             fs::create_dir_all(parent)?;
         }
         let text = toml::to_string_pretty(self)?;
-        let temp_path = config_temp_path(path);
+        let temp_path = config_temp_path(&save_path);
         fs::write(&temp_path, text)
             .with_context(|| format!("failed to write temporary config {}", temp_path.display()))?;
-        if let Ok(metadata) = fs::metadata(path) {
+        if let Ok(metadata) = fs::metadata(&save_path) {
             fs::set_permissions(&temp_path, metadata.permissions()).with_context(|| {
                 format!(
                     "failed to preserve config permissions on {}",
@@ -57,16 +58,24 @@ impl Config {
             })?;
         }
         #[cfg(windows)]
-        if path.exists() {
-            fs::remove_file(path)
-                .with_context(|| format!("failed to replace config {}", path.display()))?;
+        if save_path.exists() {
+            fs::remove_file(&save_path)
+                .with_context(|| format!("failed to replace config {}", save_path.display()))?;
         }
-        if let Err(error) = fs::rename(&temp_path, path) {
+        if let Err(error) = fs::rename(&temp_path, &save_path) {
             let _ = fs::remove_file(&temp_path);
             return Err(error)
-                .with_context(|| format!("failed to commit config {}", path.display()));
+                .with_context(|| format!("failed to commit config {}", save_path.display()));
         }
         Ok(())
+    }
+}
+
+fn config_save_path(path: &Path) -> Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)
+            .with_context(|| format!("failed to resolve config symlink {}", path.display())),
+        Ok(_) | Err(_) => Ok(path.to_path_buf()),
     }
 }
 
@@ -185,7 +194,7 @@ mod tests {
     use super::*;
 
     #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::{PermissionsExt, symlink};
 
     #[test]
     fn config_round_trips_saved_places() {
@@ -241,5 +250,42 @@ mod tests {
 
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_preserves_symlink_and_updates_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_path = dir.path().join("target.toml");
+        let symlink_path = dir.path().join("config.toml");
+        fs::write(&target_path, "").unwrap();
+        symlink(&target_path, &symlink_path).unwrap();
+
+        Config {
+            places: BTreeMap::from([(
+                "london".to_string(),
+                Location {
+                    id: None,
+                    name: "London".to_string(),
+                    country: None,
+                    country_code: Some("GB".to_string()),
+                    admin1: None,
+                    latitude: 51.50853,
+                    longitude: -0.12574,
+                    timezone: None,
+                    population: None,
+                },
+            )]),
+        }
+        .save(&symlink_path)
+        .unwrap();
+
+        assert!(
+            fs::symlink_metadata(&symlink_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(fs::read_to_string(&target_path).unwrap().contains("london"));
     }
 }
