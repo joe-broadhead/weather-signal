@@ -326,13 +326,13 @@ impl App {
         match result {
             Ok(signal) => BatchSignalItem {
                 input: input.location,
-                country: input.country,
+                requested_country: input.country,
                 signal: Some(signal),
                 error: None,
             },
             Err(error) => BatchSignalItem {
                 input: input.location,
-                country: input.country,
+                requested_country: input.country,
                 signal: None,
                 error: Some(error.to_string()),
             },
@@ -586,6 +586,9 @@ fn validate_base_url(input: &str, name: &str) -> Result<()> {
     if !matches!(url.scheme(), "http" | "https") {
         return Err(anyhow!("{name} base URL must use http or https"));
     }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(anyhow!("{name} base URL must not include credentials"));
+    }
     Ok(())
 }
 
@@ -630,10 +633,31 @@ mod tests {
     }
 
     #[test]
+    fn batch_signal_item_preserves_country_json_field() {
+        let item = BatchSignalItem {
+            input: "London".to_string(),
+            requested_country: Some("GB".to_string()),
+            signal: None,
+            error: None,
+        };
+
+        assert_eq!(
+            serde_json::to_value(item).unwrap(),
+            json!({
+                "input": "London",
+                "country": "GB"
+            })
+        );
+    }
+
+    #[test]
     fn validates_base_url_scheme() {
         assert!(validate_base_url("https://example.com/v1/forecast", "forecast").is_ok());
         assert!(validate_base_url("http://127.0.0.1:8080/v1/forecast", "forecast").is_ok());
         assert!(validate_base_url("file:///tmp/forecast", "forecast").is_err());
+        assert!(
+            validate_base_url("https://user:pass@example.com/v1/forecast", "forecast").is_err()
+        );
     }
 
     #[test]

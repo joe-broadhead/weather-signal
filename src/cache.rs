@@ -14,6 +14,9 @@ use tracing::debug;
 const SCHEMA_VERSION: &str = "v1";
 static CACHE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CacheState {
@@ -40,6 +43,8 @@ pub(crate) struct Cache {
 impl Cache {
     pub(crate) fn new(dir: PathBuf) -> Result<Self> {
         fs::create_dir_all(&dir)?;
+        #[cfg(unix)]
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
         Ok(Self { dir })
     }
 
@@ -68,9 +73,11 @@ impl Cache {
 
     pub(crate) fn put(&self, url: &str, value: &Value) -> Result<()> {
         fs::create_dir_all(&self.dir)?;
+        #[cfg(unix)]
+        fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o700))?;
         let path = self.key(url);
         let temp_path = self.temp_key(&path);
-        fs::write(&temp_path, serde_json::to_vec(value)?)?;
+        write_cache_file(&temp_path, &serde_json::to_vec(value)?)?;
         #[cfg(windows)]
         if path.exists() {
             fs::remove_file(&path)?;
@@ -148,6 +155,28 @@ impl Cache {
     }
 }
 
+fn write_cache_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, bytes)?;
+        Ok(())
+    }
+}
+
 #[derive(serde::Serialize)]
 pub(crate) struct CacheStatus {
     pub(crate) path: PathBuf,
@@ -159,6 +188,9 @@ pub(crate) struct CacheStatus {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn cache_round_trips_json_values() {
@@ -186,5 +218,26 @@ mod tests {
 
         assert_eq!(cache.prune_older_than(Duration::from_secs(60)).unwrap(), 0);
         assert_eq!(cache.status().unwrap().files, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_uses_private_directory_and_file_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Cache::new(dir.path().join("cache")).unwrap();
+        cache
+            .put("https://example.com/weather", &json!({"ok": true}))
+            .unwrap();
+
+        let dir_mode = fs::metadata(&cache.dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700);
+
+        let files = fs::read_dir(&cache.dir)
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(files.len(), 1);
+        let file_mode = files[0].metadata().unwrap().permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o600);
     }
 }
