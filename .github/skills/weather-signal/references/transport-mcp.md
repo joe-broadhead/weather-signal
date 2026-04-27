@@ -3,6 +3,9 @@
 Prefer MCP when Weather Signal tools are available in the client. MCP responses
 return JSON text content with the same weather fields used by the CLI.
 
+Use the CLI instead of MCP for cache mutation and shell-only operations such as
+`cache prune`, `cache clear`, `places add`, and `places remove`.
+
 ## Tool Selection
 
 | Need | Tool |
@@ -80,6 +83,23 @@ weather-signal server start --transport streamable-http --http-host 127.0.0.1 --
 ```
 
 Keep streamable HTTP on loopback unless an authenticating proxy controls access.
+The transport is stateless by default. Use `--http-stateful-mode` only for
+trusted local clients because stateful sessions are held in process memory.
+
+Health probes for streamable HTTP:
+
+```bash
+curl http://127.0.0.1:8768/healthz
+curl http://127.0.0.1:8768/readyz
+```
+
+`--http-path` cannot be `/healthz` or `/readyz`.
+
+## Error handling
+
+MCP tool failures are surfaced as tool errors (`isError: true`). Do not treat a
+failed tool call as usable weather evidence. Read the error text, correct the
+location, date range, or threshold arguments, and retry only when appropriate.
 
 ## Reporting Standard
 

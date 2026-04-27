@@ -231,7 +231,7 @@ impl SignalEnvelope {
                 high_uv: uv.is_some_and(|v| v >= 6.0),
             };
             days.push(DailySignal {
-                date: daily.time[idx].clone(),
+                date: daily.time.get(idx).cloned().unwrap_or_default(),
                 temp_max_c: temp_max,
                 temp_min_c: temp_min,
                 apparent_temp_max_c: daily.get_f64("apparent_temperature_max", idx),
@@ -330,6 +330,16 @@ mod tests {
         assert_eq!(summary.wet_days, 1);
         assert_eq!(summary.windy_days, 1);
         assert_eq!(summary.sunny_days, 1);
+    }
+
+    #[test]
+    fn malformed_daily_time_series_does_not_panic() {
+        let mut envelope = sample_forecast_envelope();
+        envelope.daily.as_mut().unwrap().time.clear();
+
+        let signal = SignalEnvelope::from_forecast(envelope, SignalProfile::Demand).unwrap();
+
+        assert!(signal.days.is_empty());
     }
 
     fn sample_forecast_envelope() -> ForecastEnvelope {

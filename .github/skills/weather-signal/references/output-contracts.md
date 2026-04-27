@@ -2,9 +2,9 @@
 
 ## General response fields
 
-Forecast responses include:
+Weather command responses include:
 
-- `source`: always `open-meteo` in v1
+- `source`: currently `open-meteo`
 - `location`: resolved location metadata
 - `fetched_at`: UTC timestamp for the CLI run
 - `cache`: `hit`, `miss`, or `refresh`
@@ -44,6 +44,38 @@ Each `days[]` item includes:
 - `uv_index_max`
 - `weather_code`
 - `flags`
+
+## Batch signal response
+
+`weather-signal batch signal` returns a per-item result:
+
+```json
+{
+  "source": "open-meteo",
+  "fetched_at": "2026-04-26T13:16:30Z",
+  "profile": "demand",
+  "items": [
+    {
+      "input": "London",
+      "country": "GB",
+      "signal": {}
+    },
+    {
+      "input": "Unknown",
+      "error": "no geocoding result found"
+    }
+  ]
+}
+```
+
+`country` is the requested/default country hint. The resolved country is in
+`signal.location.country_code`. Keep successful items even when another item
+contains `error`.
+
+## MCP response handling
+
+MCP tools return JSON text content on success. Tool failures are surfaced as MCP
+tool errors (`isError: true`) with contextual error text.
 
 ## Demand flags
 

@@ -12,4 +12,4 @@ cargo test --locked --all-features
 mkdocs build --strict
 ```
 
-Release flow is documented in [CI & Quality](ci.md).
+Release flow is documented in [Release](release.md).

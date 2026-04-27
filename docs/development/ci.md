@@ -36,3 +36,5 @@ projects:
    release assets.
 
 The release tag workflow requires `RELEASE_TAG_TOKEN` with `contents:write`.
+
+See [Release](release.md) for the full release checklist.

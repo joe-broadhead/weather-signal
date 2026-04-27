@@ -20,6 +20,14 @@ cargo run -- signal london --country GB --days 7
 cargo run -- daily london --country GB --days 3 --table
 ```
 
+Use the release binary for production smoke tests:
+
+```bash
+cargo build --locked --release
+./target/release/weather-signal --version
+./target/release/weather-signal summary london --country GB --days 1
+```
+
 ## Location discovery
 
 Use geocoding before forecast commands when the location is ambiguous:
@@ -96,7 +104,9 @@ weather-signal batch signal --input locations.csv --country GB --days 7 --concur
 
 CSV input must include a `location` column and may include a `country` column.
 Each batch item contains either `signal` or `error`; keep successful items even
-when one location fails.
+when one location fails. In JSON output, the item-level `country` field is the
+requested or default country hint; use `signal.location.country_code` for the
+resolved country.
 
 ## Historical weather
 
@@ -146,3 +156,13 @@ weather-signal signal london --country GB --cache-ttl 10m
 Default forecast cache TTL is 30 minutes. Geocoding is cached for 30 days
 because location metadata changes infrequently. Historical archive responses are
 cached for 24 hours.
+
+`--cache-ttl` controls forecast requests only. Use `--refresh` to bypass cache
+reads across forecast, geocode, and historical commands.
+
+## Reliability notes
+
+- Weather Signal retries transient upstream failures, including 5xx and 429.
+- API responses are capped to protect agent runs from oversized payloads.
+- API keys are hidden from help output and redacted from diagnostic logs.
+- Logs go to stderr so stdout remains parseable JSON, table, or CSV.

@@ -1,11 +1,28 @@
 # Installation
 
+## Prebuilt Binaries
+
+Release assets are published from the GitHub Release workflow with checksums,
+SBOMs, and provenance attestations.
+
+```bash
+# macOS Apple Silicon
+curl -L -o weather-signal.tar.gz \
+  https://github.com/joe-broadhead/weather-signal/releases/download/v0.0.0/weather-signal-aarch64-apple-darwin.tar.gz
+
+tar -xzf weather-signal.tar.gz
+./weather-signal --version
+```
+
+Choose the asset for your platform from
+[Releases](https://github.com/joe-broadhead/weather-signal/releases).
+
 ## From Source
 
 ```bash
 git clone https://github.com/joe-broadhead/weather-signal.git
 cd weather-signal
-cargo build --release
+cargo build --locked --release
 ```
 
 The compiled binary is written to:

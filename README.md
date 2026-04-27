@@ -3,26 +3,24 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.93%2B-orange.svg?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Docs](https://img.shields.io/badge/docs-mkdocs%20material-blue.svg?logo=materialformkdocs&logoColor=white)](https://joe-broadhead.github.io/weather-signal/)
-[![CI](https://img.shields.io/github/actions/workflow/status/joe-broadhead/weather-signal/ci.yml?branch=master&label=CI)](https://github.com/joe-broadhead/weather-signal/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/joe-broadhead/weather-signal?label=release&logo=github)](https://github.com/joe-broadhead/weather-signal/releases/latest)
+[![CI](https://github.com/joe-broadhead/weather-signal/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/joe-broadhead/weather-signal/actions/workflows/ci.yml)
 
-```
- __        __         _   _                 ____  _                   _
- \ \      / /__  __ _| |_| |__   ___ _ __ / ___|(_) __ _ _ __   __ _| |
-  \ \ /\ / / _ \/ _` | __| '_ \ / _ \ '__| |  _ | |/ _` | '_ \ / _` | |
-   \ V  V /  __/ (_| | |_| | | |  __/ |  | |_| || | (_| | | | | (_| | |
-    \_/\_/ \___|\__,_|\__|_| |_|\___|_|   \____||_|\__, |_| |_|\__,_|_|
-                                                    |___/
+<pre>
+ _       __           __  __                 _____ _                   __
+| |     / /__  ____ _/ /_/ /_  ___  _____   / ___/(_)___ _____  ____ _/ /
+| | /| / / _ \/ __ `/ __/ __ \/ _ \/ ___/   \__ \/ / __ `/ __ \/ __ `/ /
+| |/ |/ /  __/ /_/ / /_/ / / /  __/ /      ___/ / / /_/ / / / / /_/ / /
+|__/|__/\___/\__,_/\__/_/ /_/\___/_/      /____/_/\__, /_/ /_/\__,_/_/
+                                                 /____/
+             Weather context
+         for forecasting agents.
+</pre>
 
-         Weather context
-       for forecasting agents.
-```
-
-Weather Signal is an **agent-first weather data CLI** for turning Open-Meteo
-forecasts into stable, scriptable signals. It is built for forecasting flows
-that need more than a pretty terminal forecast: consistent JSON, saved business
-locations, local caching, and demand-friendly features such as rain likelihood,
-warm days, windy days, sunshine, and UV.
+Weather Signal is an **agent-first weather data CLI and MCP server** for turning
+Open-Meteo forecasts into stable, scriptable demand signals. It is built for
+forecasting flows that need more than a pretty terminal forecast: consistent
+JSON, saved business locations, local caching, MCP tools, and demand-friendly
+features such as rain likelihood, warm days, windy days, sunshine, and UV.
 
 ## What It Does
 
@@ -70,13 +68,31 @@ Example output shape:
 }
 ```
 
-## Quick Start
+## Installation
+
+### Prebuilt Binaries
+
+Release assets are published from the GitHub Release workflow with checksums,
+SBOMs, and provenance attestations.
 
 ```bash
-# From source
+# macOS Apple Silicon
+curl -L -o weather-signal.tar.gz \
+  https://github.com/joe-broadhead/weather-signal/releases/download/v0.0.0/weather-signal-aarch64-apple-darwin.tar.gz
+
+tar -xzf weather-signal.tar.gz
+./weather-signal --version
+```
+
+Choose the asset for your platform from
+[Releases](https://github.com/joe-broadhead/weather-signal/releases).
+
+### From Source
+
+```bash
 git clone https://github.com/joe-broadhead/weather-signal.git
 cd weather-signal
-cargo build --release
+cargo build --locked --release
 
 # Try the main agent signal command
 cargo run -- signal london --country GB --days 7
@@ -86,6 +102,14 @@ cargo run -- daily london --country GB --days 3 --table
 
 # CSV for spreadsheets or feature stores
 cargo run -- hourly "51.5072,-0.1276" --hours 24 --output csv
+```
+
+## Quick Start
+
+```bash
+weather-signal signal london --country GB --days 7
+weather-signal daily london --country GB --days 3 --table
+weather-signal hourly "51.5072,-0.1276" --hours 24 --output csv
 ```
 
 ## CLI Usage
@@ -173,6 +197,9 @@ weather-signal server start --transport streamable-http --http-host 127.0.0.1 --
 
 The MCP surface exposes tools such as `weather_summary`, `demand_signal`,
 `threshold_days`, `historical_weather`, `daily_forecast`, and `geocode`.
+Streamable HTTP is stateless by default and should stay on loopback unless an
+authenticating proxy controls access. Use `--http-stateful-mode` only for
+trusted local clients because stateful sessions are held in process memory.
 
 ## Documentation
 

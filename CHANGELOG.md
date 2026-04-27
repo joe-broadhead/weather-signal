@@ -6,7 +6,7 @@ This project follows semantic versioning once releases begin.
 
 ## Unreleased
 
-## [0.0.0]
+## [0.0.0] - 2026-04-27
 
 - Initial Rust CLI for Open-Meteo geocoding, current, daily, hourly, and demand
   signal outputs.

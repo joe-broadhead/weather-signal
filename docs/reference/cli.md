@@ -1,5 +1,7 @@
 # CLI Reference
 
+For workflow-oriented examples, see [Usage Patterns](../getting-started/usage-patterns.md).
+
 ## Global Options
 
 ```bash

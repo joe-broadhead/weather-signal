@@ -21,6 +21,8 @@ Create repeatable, unambiguous location aliases for agent weather workflows.
 3. Save the location with a stable business alias.
 4. List places to verify the config.
 5. Run a one-day `signal` smoke test for the alias.
+6. Use `--config <path>` and isolated `XDG_CONFIG_HOME` for temporary setup or
+   tests.
 
 ## Commands
 
@@ -52,6 +54,8 @@ Avoid aliases that are ambiguous across business contexts:
 - Do not hardcode customer-specific private location data in docs or tests.
 - Use `--config <path>` for temporary or test setups.
 - Mention the config path when creating or changing saved places.
+- Saved place mutation is CLI-only; MCP can list places but does not add or
+  remove them.
 
 ## When more detail is needed
 

@@ -96,12 +96,19 @@ nav:
   - Getting Started:
       - Quickstart: getting-started/quickstart.md
       - Installation: getting-started/installation.md
+      - Usage Patterns: getting-started/usage-patterns.md
+      - MCP Clients: getting-started/mcp-clients.md
   - Reference:
       - CLI Reference: reference/cli.md
       - MCP Reference: reference/mcp.md
       - Signal Reference: reference/signals.md
       - Configuration: reference/configuration.md
+      - Output Contracts: reference/output-contracts.md
+  - Operations:
+      - Troubleshooting: operations/troubleshooting.md
+      - Security: operations/security.md
   - Development:
       - Contributing: development/contributing.md
       - CI & Quality: development/ci.md
+      - Release: development/release.md
       - Agent Skills: development/agent-skills.md
