@@ -117,7 +117,10 @@ download_file() {
     if curl -fsSL -H "Authorization: Bearer ${DOWNLOAD_TOKEN}" "${url}" -o "${out}"; then
       return 0
     fi
-  elif curl -fsSL "${url}" -o "${out}"; then
+    echo "Authenticated download failed for ${file_name}; retrying without token." >&2
+  fi
+
+  if curl -fsSL "${url}" -o "${out}"; then
     return 0
   fi
 
@@ -171,6 +174,25 @@ repo_default_branch() {
   printf '%s' "${response}" \
     | tr -d '\n' \
     | sed -n 's/.*"default_branch"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+latest_release_tag() {
+  local api_url="https://api.github.com/repos/${REPO_SLUG}/releases/latest"
+  local response=""
+
+  if [[ -n "${DOWNLOAD_TOKEN}" ]]; then
+    response="$(curl -fsSL -H "Authorization: Bearer ${DOWNLOAD_TOKEN}" "${api_url}" 2>/dev/null || true)"
+  fi
+  if [[ -z "${response}" ]]; then
+    response="$(curl -fsSL "${api_url}" 2>/dev/null || true)"
+  fi
+  if [[ -z "${response}" ]]; then
+    return 0
+  fi
+
+  printf '%s' "${response}" \
+    | tr -d '\n' \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
 }
 
 list_standalone_skills() {
@@ -361,11 +383,16 @@ if [[ "${INSTALL_SKILLS}" == "1" ]]; then
   if [[ "${VERSION}" != "latest" ]]; then
     skills_refs+=("${VERSION}")
   else
-    detected_default_branch="$(repo_default_branch)"
-    if [[ -n "${detected_default_branch}" ]]; then
-      skills_refs+=("${detected_default_branch}")
+    detected_latest_tag="$(latest_release_tag)"
+    if [[ -n "${detected_latest_tag}" ]]; then
+      skills_refs+=("${detected_latest_tag}")
+    else
+      detected_default_branch="$(repo_default_branch)"
+      if [[ -n "${detected_default_branch}" ]]; then
+        skills_refs+=("${detected_default_branch}")
+      fi
+      skills_refs+=("master" "main")
     fi
-    skills_refs+=("master" "main")
   fi
 
   for skills_ref in "${skills_refs[@]}"; do
@@ -389,10 +416,36 @@ elif [[ "${NON_INTERACTIVE}" != "1" && -t 0 ]]; then
   read -r -p "Install Weather Signal agent skills? [y/N]: " choice
   choice="${choice:-N}"
   if [[ "${choice,,}" == "y" ]]; then
-    INSTALL_SKILLS="1" WEATHER_SIGNAL_INSTALL_NONINTERACTIVE=1 \
-      WEATHER_SIGNAL_INSTALL_DIR="${INSTALL_DIR}" WEATHER_SIGNAL_SKILLS_DIR="${SKILLS_DIR}" \
-      WEATHER_SIGNAL_VERIFY_CHECKSUM=0 WEATHER_SIGNAL_VERSION="${VERSION}" \
-      bash "$0" --install-skills
+    INSTALL_SKILLS="1"
+    SKILL_NAME=""
+    skills_refs=()
+    skills_installed="0"
+    if [[ "${VERSION}" != "latest" ]]; then
+      skills_refs+=("${VERSION}")
+    else
+      detected_latest_tag="$(latest_release_tag)"
+      if [[ -n "${detected_latest_tag}" ]]; then
+        skills_refs+=("${detected_latest_tag}")
+      else
+        detected_default_branch="$(repo_default_branch)"
+        if [[ -n "${detected_default_branch}" ]]; then
+          skills_refs+=("${detected_default_branch}")
+        fi
+        skills_refs+=("master" "main")
+      fi
+    fi
+    for skills_ref in "${skills_refs[@]}"; do
+      [[ -n "${skills_ref}" ]] || continue
+      echo "Installing skills from ref '${skills_ref}' into ${SKILLS_DIR}"
+      if install_skills_from_ref "${skills_ref}" "${SKILLS_DIR}" ""; then
+        skills_installed="1"
+        break
+      fi
+    done
+    if [[ "${skills_installed}" != "1" ]]; then
+      echo "Failed to install skills into ${SKILLS_DIR}." >&2
+      exit 1
+    fi
   fi
 fi
 
