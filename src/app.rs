@@ -579,7 +579,7 @@ fn api_status_error(status: StatusCode, body: &[u8]) -> anyhow::Error {
 
 fn weather_request_error(context: &str, url: &str, error: reqwest::Error) -> anyhow::Error {
     let error = error.without_url();
-    anyhow!("{context} for {}: {error}", redact_url(url))
+    anyhow::Error::new(error).context(format!("{context} for {}", redact_url(url)))
 }
 
 fn cache_key_for_url(url: &str) -> String {
@@ -780,6 +780,7 @@ mod tests {
             .unwrap_err();
         let rendered = format!("{error:#}");
 
+        assert!(is_retryable_error(&error));
         assert!(rendered.contains("apikey=***"));
         assert!(!rendered.contains("secret123"));
     }
