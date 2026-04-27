@@ -201,7 +201,7 @@ pub(crate) struct BatchSignalEnvelope {
 #[derive(Debug, Serialize)]
 pub(crate) struct BatchSignalItem {
     pub(crate) input: String,
-    #[serde(rename = "requested_country", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "country", skip_serializing_if = "Option::is_none")]
     pub(crate) requested_country: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) signal: Option<crate::signals::SignalEnvelope>,
