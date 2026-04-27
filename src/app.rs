@@ -19,6 +19,7 @@ use reqwest::{StatusCode, header};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     error::Error,
     fmt,
@@ -583,7 +584,24 @@ fn weather_request_error(context: &str, url: &str, error: reqwest::Error) -> any
 }
 
 fn cache_key_for_url(url: &str) -> String {
-    redact_url(url)
+    Url::parse(url)
+        .map(|mut url| {
+            let pairs = url
+                .query_pairs()
+                .map(|(key, value)| {
+                    let value = if key.eq_ignore_ascii_case("apikey") {
+                        let digest = Sha256::digest(value.as_bytes());
+                        format!("sha256:{}", hex::encode(&digest[..16]))
+                    } else {
+                        value.into_owned()
+                    };
+                    (key.into_owned(), value)
+                })
+                .collect::<Vec<_>>();
+            url.query_pairs_mut().clear().extend_pairs(pairs);
+            url.to_string()
+        })
+        .unwrap_or_else(|_| redact_url(url))
 }
 
 fn is_retryable_error(error: &anyhow::Error) -> bool {
@@ -806,6 +824,17 @@ mod tests {
 
         assert!(format!("{error:#}").contains("failed to decode API response"));
         assert_eq!(app.cache.status().unwrap().files, 0);
+    }
+
+    #[test]
+    fn cache_key_preserves_secret_entropy_without_plaintext_key() {
+        let first = cache_key_for_url("https://example.com/weather?latitude=1&apikey=secret-one");
+        let second = cache_key_for_url("https://example.com/weather?latitude=1&apikey=secret-two");
+
+        assert_ne!(first, second);
+        assert!(first.contains("apikey=sha256%3A"));
+        assert!(!first.contains("secret-one"));
+        assert!(!second.contains("secret-two"));
     }
 
     #[tokio::test]
