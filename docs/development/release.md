@@ -31,6 +31,11 @@ when all version metadata is already present on `master`.
 
 ## Tag and Publish
 
+For a public launch, make the repository public before merging the release PR
+that creates the tag. The release workflow only publishes build provenance
+attestations when GitHub reports the repository as public, and the documented
+installer URLs use public raw GitHub and release asset URLs.
+
 After the release PR is merged, the `Tag Release` workflow creates `v<version>`.
 The `Release` workflow then:
 

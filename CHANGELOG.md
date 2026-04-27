@@ -21,6 +21,8 @@ This project follows semantic versioning once releases begin.
   `historical`, and `completions`.
 - MCP server support over stdio and streamable HTTP with weather tools and
   health probes.
+- Release installer script with OS/architecture detection, checksum
+  verification, and optional agent skill installation.
 - Resilient bounded-concurrency batch signal output with per-location errors.
 - Security policy, Dependabot configuration, cargo-audit CI, and expanded
   release targets.
