@@ -3,6 +3,8 @@
 Weather Signal exposes the same weather workflows through MCP for agents
 that prefer tools over shell commands.
 
+For client configuration examples, see [MCP Clients](../getting-started/mcp-clients.md).
+
 ## Stdio
 
 ```bash
@@ -42,6 +44,10 @@ curl http://127.0.0.1:8768/readyz
 Keep HTTP bound to loopback unless an authenticating proxy controls access. The
 server prints a warning when `--http-host` is not `127.0.0.1`, `localhost`, or
 `::1`.
+
+Streamable HTTP is stateless by default. Use `--http-stateful-mode` only for
+trusted local clients because stateful sessions are held in process memory for
+the lifetime of the server process.
 
 ## Tools
 

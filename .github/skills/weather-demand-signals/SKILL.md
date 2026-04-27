@@ -19,11 +19,13 @@ what weather alone can explain.
 
 1. Prefer the `demand_signal` MCP tool when available; otherwise use
    `weather-signal signal` for the requested location and horizon.
-2. Preserve the raw JSON as evidence when building downstream artifacts.
-3. Flatten `days[]` to one row per location/date.
-4. Join weather rows to business demand data by location/date.
-5. Compare model or forecast behavior with and without weather features.
-6. Report weather as an explanatory input, not as a standalone demand forecast.
+2. Use `weather_summary` or `summary` first when the user only needs a compact
+   planning overview.
+3. Preserve the raw JSON as evidence when building downstream artifacts.
+4. Flatten `days[]` to one row per location/date.
+5. Join weather rows to business demand data by location/date.
+6. Compare model or forecast behavior with and without weather features.
+7. Report weather as an explanatory input, not as a standalone demand forecast.
 
 ## Default CLI Command
 
@@ -66,6 +68,8 @@ Prioritize these fields:
   explicitly accepts that approximation.
 - Include `fetched_at`, `cache`, and resolved `location` metadata in evidence.
 - Use `--refresh` for operational decisions; use cache for repeatable analysis.
+- For batch output, keep successful items when other items have `error`; use
+  `signal.location.country_code` as the resolved country.
 
 ## When more detail is needed
 

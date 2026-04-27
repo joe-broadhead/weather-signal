@@ -16,6 +16,7 @@ use anyhow::{Context, Result, anyhow};
 use chrono::{NaiveDate, Utc};
 use futures::{StreamExt, stream};
 use reqwest::{StatusCode, header};
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
@@ -434,8 +435,9 @@ impl App {
     }
 
     async fn get_cached<T: DeserializeOwned>(&self, url: &str, ttl: Duration) -> Result<Cached<T>> {
+        let cache_key = cache_key_for_url(url);
         if !self.refresh
-            && let Some(value) = self.cache.get(url, ttl)?
+            && let Some(value) = self.cache.get(&cache_key, ttl)?
         {
             match serde_json::from_value(value) {
                 Ok(value) => {
@@ -446,7 +448,7 @@ impl App {
                     });
                 }
                 Err(error) => {
-                    let removed = self.cache.remove(url)?;
+                    let removed = self.cache.remove(&cache_key)?;
                     warn!(
                         url = %redact_url(url),
                         removed,
@@ -458,14 +460,18 @@ impl App {
         }
         debug!(url = %redact_url(url), refresh = self.refresh, "cache miss");
         let value = self.request_json_with_retries(url).await?;
-        self.cache.put(url, &value)?;
         let state = if self.refresh {
             CacheState::Refresh
         } else {
             CacheState::Miss
         };
-        let value = serde_json::from_value(value).context("failed to decode API response")?;
-        Ok(Cached { value, state })
+        let decoded =
+            serde_json::from_value(value.clone()).context("failed to decode API response")?;
+        self.cache.put(&cache_key, &value)?;
+        Ok(Cached {
+            value: decoded,
+            state,
+        })
     }
 
     async fn request_json_with_retries(&self, url: &str) -> Result<Value> {
@@ -502,7 +508,7 @@ impl App {
             .get(url)
             .send()
             .await
-            .context("request failed")?;
+            .map_err(|error| weather_request_error("request failed", url, error))?;
         let status = response.status();
         if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
             let retry_after = response
@@ -516,29 +522,11 @@ impl App {
             }
             .into());
         }
-        let mut response = response
-            .error_for_status()
-            .context("API returned an error status")?;
-        if let Some(length) = response.content_length()
-            && length > MAX_RESPONSE_BYTES as u64
-        {
-            return Err(anyhow!(
-                "API response is too large: {length} bytes exceeds {MAX_RESPONSE_BYTES} byte limit"
-            ));
+        if !status.is_success() {
+            let body = read_response_body(response).await?;
+            return Err(api_status_error(status, &body));
         }
-        let mut body = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .context("failed to read API response body")?
-        {
-            if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
-                return Err(anyhow!(
-                    "API response is too large: exceeds {MAX_RESPONSE_BYTES} byte limit"
-                ));
-            }
-            body.extend_from_slice(&chunk);
-        }
+        let body = read_response_body(response).await?;
         serde_json::from_slice(&body).context("failed to decode API response")
     }
 
@@ -547,6 +535,55 @@ impl App {
             url.query_pairs_mut().append_pair("apikey", key);
         }
     }
+}
+
+async fn read_response_body(mut response: reqwest::Response) -> Result<Vec<u8>> {
+    if let Some(length) = response.content_length()
+        && length > MAX_RESPONSE_BYTES as u64
+    {
+        return Err(anyhow!(
+            "API response is too large: {length} bytes exceeds {MAX_RESPONSE_BYTES} byte limit"
+        ));
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("failed to read API response body")?
+    {
+        if body.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+            return Err(anyhow!(
+                "API response is too large: exceeds {MAX_RESPONSE_BYTES} byte limit"
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+#[derive(Deserialize)]
+struct OpenMeteoErrorBody {
+    reason: Option<String>,
+}
+
+fn api_status_error(status: StatusCode, body: &[u8]) -> anyhow::Error {
+    let reason = serde_json::from_slice::<OpenMeteoErrorBody>(body)
+        .ok()
+        .and_then(|body| body.reason)
+        .filter(|reason| !reason.trim().is_empty());
+    match reason {
+        Some(reason) => anyhow!("API returned status {status}: {reason}"),
+        None => anyhow!("API returned status {status}"),
+    }
+}
+
+fn weather_request_error(context: &str, url: &str, error: reqwest::Error) -> anyhow::Error {
+    let error = error.without_url();
+    anyhow!("{context} for {}: {error}", redact_url(url))
+}
+
+fn cache_key_for_url(url: &str) -> String {
+    redact_url(url)
 }
 
 fn is_retryable_error(error: &anyhow::Error) -> bool {
@@ -712,6 +749,62 @@ mod tests {
         let error = app.request_json_once(&base_url).await.unwrap_err();
 
         assert!(format!("{error:#}").contains("API response is too large"));
+    }
+
+    #[tokio::test]
+    async fn status_error_surfaces_open_meteo_reason_without_api_key() {
+        let body = r#"{"error":true,"reason":"Invalid latitude"}"#;
+        let base_url = spawn_sequence_server(vec![format!(
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )])
+        .await;
+        let app = test_app_with_base(tempfile::tempdir().unwrap().path(), &base_url);
+        let error = app
+            .request_json_once(&format!("{base_url}?apikey=secret123&latitude=bad"))
+            .await
+            .unwrap_err();
+        let rendered = format!("{error:#}");
+
+        assert!(rendered.contains("Invalid latitude"));
+        assert!(!rendered.contains("secret123"));
+    }
+
+    #[tokio::test]
+    async fn request_error_redacts_api_key_from_url() {
+        let app = test_app(tempfile::tempdir().unwrap().path());
+        let error = app
+            .request_json_once("http://127.0.0.1:1/v1/forecast?apikey=secret123")
+            .await
+            .unwrap_err();
+        let rendered = format!("{error:#}");
+
+        assert!(rendered.contains("apikey=***"));
+        assert!(!rendered.contains("secret123"));
+    }
+
+    #[tokio::test]
+    async fn bad_fresh_response_is_not_cached() {
+        let body = json!({"bad": "shape"}).to_string();
+        let base_url = spawn_sequence_server(vec![format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        )])
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let app = test_app_with_base(dir.path(), &base_url);
+        let error = match app
+            .get_cached::<ForecastResponse>(&base_url, Duration::from_secs(60))
+            .await
+        {
+            Ok(_) => panic!("malformed response decoded unexpectedly"),
+            Err(error) => error,
+        };
+
+        assert!(format!("{error:#}").contains("failed to decode API response"));
+        assert_eq!(app.cache.status().unwrap().files, 0);
     }
 
     #[tokio::test]

@@ -36,4 +36,5 @@ flowchart LR
 ```
 
 Start with the [Quickstart](getting-started/quickstart.md), then review the
+[Usage Patterns](getting-started/usage-patterns.md) and
 [Signal Reference](reference/signals.md) for demand feature definitions.

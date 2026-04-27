@@ -48,7 +48,7 @@ impl Config {
         }
         let text = toml::to_string_pretty(self)?;
         let temp_path = config_temp_path(&save_path);
-        fs::write(&temp_path, text)
+        write_config_file(&temp_path, text.as_bytes())
             .with_context(|| format!("failed to write temporary config {}", temp_path.display()))?;
         if let Ok(metadata) = fs::metadata(&save_path) {
             fs::set_permissions(&temp_path, metadata.permissions()).with_context(|| {
@@ -106,6 +106,28 @@ fn config_temp_path(path: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("config.toml");
     path.with_file_name(format!(".{file_name}.{}.{}.tmp", process::id(), counter))
+}
+
+fn write_config_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::{io::Write, os::unix::fs::OpenOptionsExt};
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::write(path, bytes)?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -265,6 +287,18 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, "").unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        Config::default().save(&path).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_uses_private_permissions_on_first_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
 
         Config::default().save(&path).unwrap();
 

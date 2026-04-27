@@ -49,6 +49,8 @@ weather-signal signal london-store --days 7 --output json
 ```
 
 Use `--refresh` only for operational decisions that require live API state.
+Use `--concurrency` conservatively for batches so upstream rate limits do not
+become the dominant failure mode.
 
 ## Caveats
 

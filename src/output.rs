@@ -354,7 +354,7 @@ fn add_series_table(table: &mut Table, series: Option<&Series>) -> Result<()> {
     header.extend(keys.iter().cloned());
     table.set_header(header);
     for idx in 0..series.len() {
-        let mut row = vec![series.time[idx].clone()];
+        let mut row = vec![series.time.get(idx).cloned().unwrap_or_default()];
         for key in &keys {
             row.push(
                 series
@@ -381,7 +381,7 @@ fn write_series_csv(
     header.extend(keys.iter().cloned());
     writer.write_record(header)?;
     for idx in 0..series.len() {
-        let mut row = vec![series.time[idx].clone()];
+        let mut row = vec![series.time.get(idx).cloned().unwrap_or_default()];
         for key in &keys {
             row.push(
                 series

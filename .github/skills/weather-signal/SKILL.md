@@ -25,8 +25,8 @@ forecast signals through either MCP tools or the `weather-signal` CLI.
    - `lat,lon` if provided
    - geocoding with `--country` when the city is ambiguous
 3. Choose the smallest command that answers the task:
-   - `signal` for demand forecasting features
    - `summary` for compact forecast-window overview
+   - `signal` for demand forecasting features
    - `threshold` for days matching decision rules
    - `batch signal` for multiple saved or CSV locations
    - `historical` for backtesting and feature engineering
@@ -34,10 +34,12 @@ forecast signals through either MCP tools or the `weather-signal` CLI.
    - `hourly` for sub-day detail
    - `current` for now/current context
    - `geocode` for location discovery
-4. Use `--refresh` only when stale cache would materially affect the answer.
+4. Prefer cached responses for repeatable analysis; use `--refresh` only when
+   stale cache would materially affect the answer.
 5. Report the resolved location, date range, source, cache state, and any caveat
    about ambiguous locations or low relevance to the business question.
-6. Do not mix MCP and CLI in one answer unless debugging transport behavior.
+6. Do not mix MCP and CLI in one answer unless debugging transport behavior or
+   filling an intentional gap such as cache pruning, which is CLI-only.
 
 ## Command defaults
 
@@ -48,6 +50,8 @@ Use these defaults unless the user asks otherwise:
 - Hourly horizon: 48 hours
 - Country hint for London: `--country GB`
 - Demand forecasting: prefer `signal --profile demand`
+- Batch concurrency: start with `--concurrency 4`; lower it when rate limits
+  matter.
 
 ## Transport Selection
 
@@ -61,12 +65,17 @@ Use these defaults unless the user asks otherwise:
 - Do not silently assume the wrong London/Paris/Springfield. Use `geocode` or a
   country hint when a place name is ambiguous.
 - Do not hardcode API keys. Use `OPEN_METEO_API_KEY` or `--api-key`.
+- Do not echo API keys or credential-bearing base URLs in answers.
 - Prefer cached responses for repeatable agent loops; use `--refresh` for
   operational decisions that need current API state.
 - For commercial Open-Meteo deployments, use configured base URLs rather than
   changing command semantics.
 - For MCP HTTP, keep the server on loopback unless an authenticating proxy
   controls access.
+- Treat `batch signal` item-level `error` values as partial failures, not as a
+  reason to discard successful items.
+- Treat MCP tool failures as MCP errors (`isError: true`) and inspect the error
+  text before retrying.
 
 ## Output contract
 

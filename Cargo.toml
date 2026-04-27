@@ -27,7 +27,7 @@ futures = "0.3"
 hex = "0.4"
 humantime = "2"
 axum = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["gzip", "json", "rustls-tls"] }
 rmcp = { version = "1.5.0", features = ["server", "macros", "transport-io", "transport-streamable-http-server"] }
 schemars = { version = "1.2", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
