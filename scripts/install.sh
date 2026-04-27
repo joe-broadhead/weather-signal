@@ -208,15 +208,15 @@ install_standalone_skill_from_source() {
   local skill_source="${skills_source}/${skill_name}"
   local installed_dir="${skills_dest}/${skill_name}"
 
-  validate_skill_name_segment "${skill_name}"
+  validate_skill_name_segment "${skill_name}" || return 1
   if [[ ! -f "${skill_source}/SKILL.md" ]]; then
     echo "Skill '${skill_name}' not found in repository archive." >&2
     return 1
   fi
 
-  mkdir -p "${skills_dest}"
-  rm -rf "${installed_dir}"
-  cp -R "${skill_source}" "${installed_dir}"
+  mkdir -p "${skills_dest}" || return 1
+  rm -rf "${installed_dir}" || return 1
+  cp -R "${skill_source}" "${installed_dir}" || return 1
   echo "Installed skill '${skill_name}' to ${skills_dest}"
 }
 
@@ -228,7 +228,7 @@ install_all_standalone_skills_from_source() {
 
   while IFS= read -r skill_name; do
     [[ -n "${skill_name}" ]] || continue
-    install_standalone_skill_from_source "${skills_source}" "${skills_dest}" "${skill_name}"
+    install_standalone_skill_from_source "${skills_source}" "${skills_dest}" "${skill_name}" || return 1
     skill_count=$((skill_count + 1))
   done < <(list_standalone_skills "${skills_source}")
 
@@ -249,9 +249,9 @@ install_skills_from_ref() {
   local extract_dir="${tmp_dir}/repo-${archive_ref}"
   local skills_source=""
 
-  download_repo_archive "${ref}" "${archive_path}"
-  mkdir -p "${extract_dir}"
-  tar -xzf "${archive_path}" -C "${extract_dir}"
+  download_repo_archive "${ref}" "${archive_path}" || return 1
+  mkdir -p "${extract_dir}" || return 1
+  tar -xzf "${archive_path}" -C "${extract_dir}" || return 1
   skills_source="$(find "${extract_dir}" -type d -path "*/.github/skills" | head -n 1)"
   if [[ -z "${skills_source}" ]]; then
     echo "Skills directory not found in repository archive for ref '${ref}'." >&2
@@ -259,9 +259,9 @@ install_skills_from_ref() {
   fi
 
   if [[ -n "${requested_skill}" ]]; then
-    install_standalone_skill_from_source "${skills_source}" "${skills_dest}" "${requested_skill}"
+    install_standalone_skill_from_source "${skills_source}" "${skills_dest}" "${requested_skill}" || return 1
   else
-    install_all_standalone_skills_from_source "${skills_source}" "${skills_dest}"
+    install_all_standalone_skills_from_source "${skills_source}" "${skills_dest}" || return 1
   fi
 }
 
