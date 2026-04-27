@@ -49,11 +49,12 @@ validate_skill_name_segment() {
 }
 
 resolve_skill_install_selection() {
-  if [[ "${INSTALL_SKILLS}" != "1" ]]; then
-    return 0
-  fi
   if [[ -n "${SKILL_NAME}" ]]; then
     validate_skill_name_segment "${SKILL_NAME}"
+  fi
+  if [[ -n "${SKILL_NAME}" && "${INSTALL_SKILLS}" != "1" ]]; then
+    echo "--skill requires --install-skills." >&2
+    return 1
   fi
 }
 
@@ -384,15 +385,12 @@ if [[ "${INSTALL_SKILLS}" == "1" ]]; then
     skills_refs+=("${VERSION}")
   else
     detected_latest_tag="$(latest_release_tag)"
-    if [[ -n "${detected_latest_tag}" ]]; then
-      skills_refs+=("${detected_latest_tag}")
-    else
-      detected_default_branch="$(repo_default_branch)"
-      if [[ -n "${detected_default_branch}" ]]; then
-        skills_refs+=("${detected_default_branch}")
-      fi
-      skills_refs+=("master" "main")
+    if [[ -z "${detected_latest_tag}" ]]; then
+      echo "Could not resolve latest release tag for skills installation." >&2
+      echo "Set WEATHER_SIGNAL_VERSION to an explicit release tag, or retry after GitHub is reachable." >&2
+      exit 1
     fi
+    skills_refs+=("${detected_latest_tag}")
   fi
 
   for skills_ref in "${skills_refs[@]}"; do
@@ -424,15 +422,12 @@ elif [[ "${NON_INTERACTIVE}" != "1" && -t 0 ]]; then
       skills_refs+=("${VERSION}")
     else
       detected_latest_tag="$(latest_release_tag)"
-      if [[ -n "${detected_latest_tag}" ]]; then
-        skills_refs+=("${detected_latest_tag}")
-      else
-        detected_default_branch="$(repo_default_branch)"
-        if [[ -n "${detected_default_branch}" ]]; then
-          skills_refs+=("${detected_default_branch}")
-        fi
-        skills_refs+=("master" "main")
+      if [[ -z "${detected_latest_tag}" ]]; then
+        echo "Could not resolve latest release tag for skills installation." >&2
+        echo "Set WEATHER_SIGNAL_VERSION to an explicit release tag, or retry after GitHub is reachable." >&2
+        exit 1
       fi
+      skills_refs+=("${detected_latest_tag}")
     fi
     for skills_ref in "${skills_refs[@]}"; do
       [[ -n "${skills_ref}" ]] || continue
