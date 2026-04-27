@@ -73,8 +73,15 @@ impl Config {
 
 fn config_save_path(path: &Path) -> Result<PathBuf> {
     match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => fs::canonicalize(path)
-            .with_context(|| format!("failed to resolve config symlink {}", path.display())),
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let target = fs::read_link(path)
+                .with_context(|| format!("failed to read config symlink {}", path.display()))?;
+            if target.is_absolute() {
+                Ok(target)
+            } else {
+                Ok(path.parent().unwrap_or_else(|| Path::new(".")).join(target))
+            }
+        }
         Ok(_) | Err(_) => Ok(path.to_path_buf()),
     }
 }
@@ -287,5 +294,24 @@ mod tests {
                 .is_symlink()
         );
         assert!(fs::read_to_string(&target_path).unwrap().contains("london"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_bootstraps_dangling_symlink_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_path = dir.path().join("target.toml");
+        let symlink_path = dir.path().join("config.toml");
+        symlink(&target_path, &symlink_path).unwrap();
+
+        Config::default().save(&symlink_path).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&symlink_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(target_path.exists());
     }
 }
