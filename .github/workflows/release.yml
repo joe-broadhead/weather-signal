@@ -182,6 +182,20 @@ jobs:
             sha256sum "weather-signal-${ASSET_NAME}.tar.gz" > "weather-signal-${ASSET_NAME}.sha256"
           fi
 
+      - name: Smoke packaged artifact
+        shell: bash
+        env:
+          ASSET_NAME: ${{ matrix.asset }}
+          BIN_EXT: ${{ matrix.ext }}
+        run: |
+          set -euo pipefail
+          smoke_dir="$(mktemp -d)"
+          tar -xzf "weather-signal-${ASSET_NAME}.tar.gz" -C "${smoke_dir}"
+          bin="${smoke_dir}/weather-signal-${ASSET_NAME}/weather-signal${BIN_EXT}"
+          test -x "${bin}"
+          "${bin}" --version
+          XDG_CACHE_HOME="${smoke_dir}/cache" XDG_CONFIG_HOME="${smoke_dir}/config" "${bin}" cache status
+
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:

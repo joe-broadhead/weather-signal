@@ -39,7 +39,7 @@ features such as rain likelihood, warm days, windy days, sunshine, and UV.
 weather-signal signal london --country GB --days 3
 ```
 
-Example output shape:
+Example output shape (abridged):
 
 ```json
 {
@@ -88,7 +88,7 @@ SBOMs, and provenance attestations.
 ```bash
 # macOS Apple Silicon
 curl -L -o weather-signal.tar.gz \
-  https://github.com/joe-broadhead/weather-signal/releases/download/v0.0.0/weather-signal-aarch64-apple-darwin.tar.gz
+  https://github.com/joe-broadhead/weather-signal/releases/download/v0.0.0/weather-signal-macos-arm64.tar.gz
 
 tar -xzf weather-signal.tar.gz
 ./weather-signal --version

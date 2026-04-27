@@ -266,6 +266,38 @@ install_skills_from_ref() {
   fi
 }
 
+resolve_skills_ref() {
+  local detected_latest_tag=""
+
+  if [[ "${VERSION}" != "latest" ]]; then
+    printf '%s\n' "${VERSION}"
+    return 0
+  fi
+
+  detected_latest_tag="$(latest_release_tag)"
+  if [[ -z "${detected_latest_tag}" ]]; then
+    echo "Could not resolve latest release tag for skills installation." >&2
+    echo "Set WEATHER_SIGNAL_VERSION to an explicit release tag, or retry after GitHub is reachable." >&2
+    return 1
+  fi
+
+  printf '%s\n' "${detected_latest_tag}"
+}
+
+install_selected_skills() {
+  local requested_skill="$1"
+  local skills_ref=""
+
+  skills_ref="$(resolve_skills_ref)"
+  if [[ -n "${requested_skill}" ]]; then
+    echo "Installing skill '${requested_skill}' from ref '${skills_ref}' into ${SKILLS_DIR}"
+  else
+    echo "Installing skills from ref '${skills_ref}' into ${SKILLS_DIR}"
+  fi
+
+  install_skills_from_ref "${skills_ref}" "${SKILLS_DIR}" "${requested_skill}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --non-interactive|-y)
@@ -378,70 +410,17 @@ cp "${binary_path}" "${INSTALL_DIR}/weather-signal${ext}"
 chmod +x "${INSTALL_DIR}/weather-signal${ext}"
 
 if [[ "${INSTALL_SKILLS}" == "1" ]]; then
-  skills_refs=()
-  skills_installed="0"
-
-  if [[ "${VERSION}" != "latest" ]]; then
-    skills_refs+=("${VERSION}")
-  else
-    detected_latest_tag="$(latest_release_tag)"
-    if [[ -z "${detected_latest_tag}" ]]; then
-      echo "Could not resolve latest release tag for skills installation." >&2
-      echo "Set WEATHER_SIGNAL_VERSION to an explicit release tag, or retry after GitHub is reachable." >&2
-      exit 1
-    fi
-    skills_refs+=("${detected_latest_tag}")
-  fi
-
-  for skills_ref in "${skills_refs[@]}"; do
-    [[ -n "${skills_ref}" ]] || continue
-    if [[ -n "${SKILL_NAME}" ]]; then
-      echo "Installing skill '${SKILL_NAME}' from ref '${skills_ref}' into ${SKILLS_DIR}"
-    else
-      echo "Installing skills from ref '${skills_ref}' into ${SKILLS_DIR}"
-    fi
-    if install_skills_from_ref "${skills_ref}" "${SKILLS_DIR}" "${SKILL_NAME}"; then
-      skills_installed="1"
-      break
-    fi
-  done
-
-  if [[ "${skills_installed}" != "1" ]]; then
-    echo "Failed to install skills into ${SKILLS_DIR}." >&2
-    exit 1
-  fi
+  install_selected_skills "${SKILL_NAME}"
 elif [[ "${NON_INTERACTIVE}" != "1" && -t 0 ]]; then
   read -r -p "Install Weather Signal agent skills? [y/N]: " choice
   choice="${choice:-N}"
-  if [[ "${choice,,}" == "y" ]]; then
+  case "${choice}" in
+  [Yy])
     INSTALL_SKILLS="1"
     SKILL_NAME=""
-    skills_refs=()
-    skills_installed="0"
-    if [[ "${VERSION}" != "latest" ]]; then
-      skills_refs+=("${VERSION}")
-    else
-      detected_latest_tag="$(latest_release_tag)"
-      if [[ -z "${detected_latest_tag}" ]]; then
-        echo "Could not resolve latest release tag for skills installation." >&2
-        echo "Set WEATHER_SIGNAL_VERSION to an explicit release tag, or retry after GitHub is reachable." >&2
-        exit 1
-      fi
-      skills_refs+=("${detected_latest_tag}")
-    fi
-    for skills_ref in "${skills_refs[@]}"; do
-      [[ -n "${skills_ref}" ]] || continue
-      echo "Installing skills from ref '${skills_ref}' into ${SKILLS_DIR}"
-      if install_skills_from_ref "${skills_ref}" "${SKILLS_DIR}" ""; then
-        skills_installed="1"
-        break
-      fi
-    done
-    if [[ "${skills_installed}" != "1" ]]; then
-      echo "Failed to install skills into ${SKILLS_DIR}." >&2
-      exit 1
-    fi
-  fi
+    install_selected_skills ""
+    ;;
+  esac
 fi
 
 echo "Installed weather-signal to ${INSTALL_DIR}/weather-signal${ext}"

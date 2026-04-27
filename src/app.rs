@@ -297,7 +297,7 @@ impl App {
             let app = app.clone();
             async move { app.batch_signal_item(input, args.days, args.profile).await }
         }))
-        .buffer_unordered(args.concurrency)
+        .buffered(args.concurrency)
         .collect()
         .await;
         Ok(BatchSignalEnvelope {
@@ -685,6 +685,38 @@ mod tests {
         assert_eq!(locations[0].country.as_deref(), Some("GB"));
         assert_eq!(locations[1].location, "Paris");
         assert_eq!(locations[1].country.as_deref(), Some("FR"));
+    }
+
+    #[tokio::test]
+    async fn batch_signal_preserves_input_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("places.csv");
+        std::fs::write(
+            &path,
+            "location,country\nnot-a-place-one,GB\nnot-a-place-two,GB\nnot-a-place-three,GB\n",
+        )
+        .unwrap();
+        let app = test_app(dir.path());
+        let args = BatchSignalArgs {
+            places: None,
+            input: Some(path),
+            country: None,
+            days: 1,
+            profile: SignalProfile::Demand,
+            concurrency: 3,
+        };
+
+        let envelope = app.batch_signal(&args).await.unwrap();
+        let inputs = envelope
+            .items
+            .iter()
+            .map(|item| item.input.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            inputs,
+            vec!["not-a-place-one", "not-a-place-two", "not-a-place-three"]
+        );
     }
 
     #[test]
