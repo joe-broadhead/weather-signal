@@ -693,10 +693,11 @@ mod tests {
         let path = dir.path().join("places.csv");
         std::fs::write(
             &path,
-            "location,country\nnot-a-place-one,GB\nnot-a-place-two,GB\nnot-a-place-three,GB\n",
+            "location,country\n\"51.5,-0.1\",\n\"52.5,-0.2\",\n\"53.5,-0.3\",\n",
         )
         .unwrap();
-        let app = test_app(dir.path());
+        let base_url = spawn_out_of_order_forecast_server().await;
+        let app = test_app_with_base(dir.path(), &base_url);
         let args = BatchSignalArgs {
             places: None,
             input: Some(path),
@@ -713,10 +714,7 @@ mod tests {
             .map(|item| item.input.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            inputs,
-            vec!["not-a-place-one", "not-a-place-two", "not-a-place-three"]
-        );
+        assert_eq!(inputs, vec!["51.5,-0.1", "52.5,-0.2", "53.5,-0.3"]);
     }
 
     #[test]
@@ -940,6 +938,53 @@ mod tests {
                 stream.write_all(response.as_bytes()).await.unwrap();
             }
         });
+        format!("http://{address}/v1/forecast")
+    }
+
+    async fn spawn_out_of_order_forecast_server() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let body = json!({
+            "timezone": "Europe/London",
+            "daily": {
+                "time": ["2026-04-27"],
+                "temperature_2m_max": [20.0],
+                "temperature_2m_min": [10.0],
+                "apparent_temperature_max": [19.0],
+                "apparent_temperature_min": [9.0],
+                "precipitation_sum": [0.0],
+                "precipitation_probability_max": [0],
+                "precipitation_hours": [0.0],
+                "wind_speed_10m_max": [10.0],
+                "wind_gusts_10m_max": [15.0],
+                "sunshine_duration": [3600.0],
+                "uv_index_max": [3.0],
+                "weather_code": [1]
+            }
+        })
+        .to_string();
+
+        tokio::spawn(async move {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let body = body.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let n = stream.read(&mut buffer).await.unwrap();
+                    let request = String::from_utf8_lossy(&buffer[..n]);
+                    if request.contains("latitude=51.5") {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                });
+            }
+        });
+
         format!("http://{address}/v1/forecast")
     }
 }
