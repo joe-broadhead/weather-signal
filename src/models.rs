@@ -48,6 +48,14 @@ impl Config {
         let temp_path = config_temp_path(path);
         fs::write(&temp_path, text)
             .with_context(|| format!("failed to write temporary config {}", temp_path.display()))?;
+        if let Ok(metadata) = fs::metadata(path) {
+            fs::set_permissions(&temp_path, metadata.permissions()).with_context(|| {
+                format!(
+                    "failed to preserve config permissions on {}",
+                    temp_path.display()
+                )
+            })?;
+        }
         #[cfg(windows)]
         if path.exists() {
             fs::remove_file(path)
@@ -176,6 +184,9 @@ pub(crate) struct BatchSignalItem {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
     #[test]
     fn config_round_trips_saved_places() {
         let dir = tempfile::tempdir().unwrap();
@@ -216,5 +227,19 @@ mod tests {
             .count();
 
         assert_eq!(temp_files, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_preserves_existing_file_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        Config::default().save(&path).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }
