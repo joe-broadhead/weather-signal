@@ -293,13 +293,23 @@ impl App {
     pub(crate) async fn batch_signal(&self, args: &BatchSignalArgs) -> Result<BatchSignalEnvelope> {
         let inputs = self.batch_location_inputs(args)?;
         let app = self.clone();
-        let items = stream::iter(inputs.into_iter().map(|input| {
+        let mut indexed_items = stream::iter(inputs.into_iter().enumerate().map(|(idx, input)| {
             let app = app.clone();
-            async move { app.batch_signal_item(input, args.days, args.profile).await }
+            async move {
+                (
+                    idx,
+                    app.batch_signal_item(input, args.days, args.profile).await,
+                )
+            }
         }))
         .buffer_unordered(args.concurrency)
-        .collect()
+        .collect::<Vec<_>>()
         .await;
+        indexed_items.sort_by_key(|(idx, _)| *idx);
+        let items = indexed_items
+            .into_iter()
+            .map(|(_, item)| item)
+            .collect::<Vec<_>>();
         Ok(BatchSignalEnvelope {
             source: "open-meteo".to_string(),
             fetched_at: Utc::now(),
@@ -687,6 +697,36 @@ mod tests {
         assert_eq!(locations[1].country.as_deref(), Some("FR"));
     }
 
+    #[tokio::test]
+    async fn batch_signal_preserves_input_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("places.csv");
+        std::fs::write(
+            &path,
+            "location,country\n\"51.5,-0.1\",\n\"52.5,-0.2\",\n\"53.5,-0.3\",\n",
+        )
+        .unwrap();
+        let base_url = spawn_out_of_order_forecast_server().await;
+        let app = test_app_with_base(dir.path(), &base_url);
+        let args = BatchSignalArgs {
+            places: None,
+            input: Some(path),
+            country: None,
+            days: 1,
+            profile: SignalProfile::Demand,
+            concurrency: 3,
+        };
+
+        let envelope = app.batch_signal(&args).await.unwrap();
+        let inputs = envelope
+            .items
+            .iter()
+            .map(|item| item.input.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(inputs, vec!["51.5,-0.1", "52.5,-0.2", "53.5,-0.3"]);
+    }
+
     #[test]
     fn batch_signal_item_preserves_country_json_field() {
         let item = BatchSignalItem {
@@ -908,6 +948,53 @@ mod tests {
                 stream.write_all(response.as_bytes()).await.unwrap();
             }
         });
+        format!("http://{address}/v1/forecast")
+    }
+
+    async fn spawn_out_of_order_forecast_server() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let body = json!({
+            "timezone": "Europe/London",
+            "daily": {
+                "time": ["2026-04-27"],
+                "temperature_2m_max": [20.0],
+                "temperature_2m_min": [10.0],
+                "apparent_temperature_max": [19.0],
+                "apparent_temperature_min": [9.0],
+                "precipitation_sum": [0.0],
+                "precipitation_probability_max": [0],
+                "precipitation_hours": [0.0],
+                "wind_speed_10m_max": [10.0],
+                "wind_gusts_10m_max": [15.0],
+                "sunshine_duration": [3600.0],
+                "uv_index_max": [3.0],
+                "weather_code": [1]
+            }
+        })
+        .to_string();
+
+        tokio::spawn(async move {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let body = body.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let n = stream.read(&mut buffer).await.unwrap();
+                    let request = String::from_utf8_lossy(&buffer[..n]);
+                    if request.contains("latitude=51.5") {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    stream.write_all(response.as_bytes()).await.unwrap();
+                });
+            }
+        });
+
         format!("http://{address}/v1/forecast")
     }
 }
