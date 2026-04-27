@@ -3,7 +3,16 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    process,
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+static CONFIG_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+const MAX_CONFIG_SYMLINK_HOPS: usize = 32;
 
 pub(crate) enum ForecastKind {
     Current,
@@ -33,12 +42,70 @@ impl Config {
     }
 
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
+        let save_path = config_save_path(path)?;
+        if let Some(parent) = save_path.parent() {
             fs::create_dir_all(parent)?;
         }
         let text = toml::to_string_pretty(self)?;
-        fs::write(path, text).with_context(|| format!("failed to write config {}", path.display()))
+        let temp_path = config_temp_path(&save_path);
+        fs::write(&temp_path, text)
+            .with_context(|| format!("failed to write temporary config {}", temp_path.display()))?;
+        if let Ok(metadata) = fs::metadata(&save_path) {
+            fs::set_permissions(&temp_path, metadata.permissions()).with_context(|| {
+                format!(
+                    "failed to preserve config permissions on {}",
+                    temp_path.display()
+                )
+            })?;
+        }
+        #[cfg(windows)]
+        if save_path.exists() {
+            fs::remove_file(&save_path)
+                .with_context(|| format!("failed to replace config {}", save_path.display()))?;
+        }
+        if let Err(error) = fs::rename(&temp_path, &save_path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(error)
+                .with_context(|| format!("failed to commit config {}", save_path.display()));
+        }
+        Ok(())
     }
+}
+
+fn config_save_path(path: &Path) -> Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    for _ in 0..MAX_CONFIG_SYMLINK_HOPS {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = fs::read_link(&current).with_context(|| {
+                    format!("failed to read config symlink {}", current.display())
+                })?;
+                current = if target.is_absolute() {
+                    target
+                } else {
+                    current
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .join(target)
+                };
+            }
+            Ok(_) | Err(_) => return Ok(current),
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "config symlink chain is too deep starting at {}",
+        path.display()
+    ))
+}
+
+fn config_temp_path(path: &Path) -> PathBuf {
+    let counter = CONFIG_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    path.with_file_name(format!(".{file_name}.{}.{}.tmp", process::id(), counter))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -146,6 +213,9 @@ pub(crate) struct BatchSignalItem {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
     #[test]
     fn config_round_trips_saved_places() {
         let dir = tempfile::tempdir().unwrap();
@@ -171,5 +241,122 @@ mod tests {
         let loaded = Config::load(&path).unwrap();
 
         assert_eq!(loaded.places["london"].country_code.as_deref(), Some("GB"));
+    }
+
+    #[test]
+    fn config_save_does_not_leave_temp_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Config::default().save(&path).unwrap();
+
+        let temp_files = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+
+        assert_eq!(temp_files, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_preserves_existing_file_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        Config::default().save(&path).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_preserves_symlink_and_updates_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_path = dir.path().join("target.toml");
+        let symlink_path = dir.path().join("config.toml");
+        fs::write(&target_path, "").unwrap();
+        symlink(&target_path, &symlink_path).unwrap();
+
+        Config {
+            places: BTreeMap::from([(
+                "london".to_string(),
+                Location {
+                    id: None,
+                    name: "London".to_string(),
+                    country: None,
+                    country_code: Some("GB".to_string()),
+                    admin1: None,
+                    latitude: 51.50853,
+                    longitude: -0.12574,
+                    timezone: None,
+                    population: None,
+                },
+            )]),
+        }
+        .save(&symlink_path)
+        .unwrap();
+
+        assert!(
+            fs::symlink_metadata(&symlink_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(fs::read_to_string(&target_path).unwrap().contains("london"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_bootstraps_dangling_symlink_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_path = dir.path().join("target.toml");
+        let symlink_path = dir.path().join("config.toml");
+        symlink(&target_path, &symlink_path).unwrap();
+
+        Config::default().save(&symlink_path).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&symlink_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(target_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_preserves_symlink_chains_and_updates_final_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_path = dir.path().join("target.toml");
+        let middle_path = dir.path().join("middle.toml");
+        let symlink_path = dir.path().join("config.toml");
+        fs::write(&target_path, "").unwrap();
+        symlink(&target_path, &middle_path).unwrap();
+        symlink(&middle_path, &symlink_path).unwrap();
+
+        Config::default().save(&symlink_path).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&symlink_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::symlink_metadata(&middle_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::read_to_string(&target_path)
+                .unwrap()
+                .contains("[places]")
+        );
     }
 }

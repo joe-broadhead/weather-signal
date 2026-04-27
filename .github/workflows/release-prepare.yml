@@ -68,6 +68,9 @@ jobs:
           fi
 
           git checkout -b "${branch}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "release: v${VERSION}"
           git push origin "${branch}"
 
       - name: Open release PR
