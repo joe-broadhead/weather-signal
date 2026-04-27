@@ -12,6 +12,7 @@ use std::{
 };
 
 static CONFIG_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+const MAX_CONFIG_SYMLINK_HOPS: usize = 32;
 
 pub(crate) enum ForecastKind {
     Current,
@@ -72,18 +73,30 @@ impl Config {
 }
 
 fn config_save_path(path: &Path) -> Result<PathBuf> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_symlink() => {
-            let target = fs::read_link(path)
-                .with_context(|| format!("failed to read config symlink {}", path.display()))?;
-            if target.is_absolute() {
-                Ok(target)
-            } else {
-                Ok(path.parent().unwrap_or_else(|| Path::new(".")).join(target))
+    let mut current = path.to_path_buf();
+    for _ in 0..MAX_CONFIG_SYMLINK_HOPS {
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = fs::read_link(&current).with_context(|| {
+                    format!("failed to read config symlink {}", current.display())
+                })?;
+                current = if target.is_absolute() {
+                    target
+                } else {
+                    current
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .join(target)
+                };
             }
+            Ok(_) | Err(_) => return Ok(current),
         }
-        Ok(_) | Err(_) => Ok(path.to_path_buf()),
     }
+
+    Err(anyhow::anyhow!(
+        "config symlink chain is too deep starting at {}",
+        path.display()
+    ))
 }
 
 fn config_temp_path(path: &Path) -> PathBuf {
@@ -313,5 +326,37 @@ mod tests {
                 .is_symlink()
         );
         assert!(target_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_save_preserves_symlink_chains_and_updates_final_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target_path = dir.path().join("target.toml");
+        let middle_path = dir.path().join("middle.toml");
+        let symlink_path = dir.path().join("config.toml");
+        fs::write(&target_path, "").unwrap();
+        symlink(&target_path, &middle_path).unwrap();
+        symlink(&middle_path, &symlink_path).unwrap();
+
+        Config::default().save(&symlink_path).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&symlink_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::symlink_metadata(&middle_path)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(
+            fs::read_to_string(&target_path)
+                .unwrap()
+                .contains("[places]")
+        );
     }
 }
