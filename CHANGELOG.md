@@ -6,6 +6,9 @@ This project follows semantic versioning once releases begin.
 
 ## Unreleased
 
+- Use native OS certificate roots with Rustls-backed HTTP requests so macOS
+  Keychain and other platform trust stores are honored.
+
 ## [0.0.0] - 2026-04-27
 
 - Initial Rust CLI for Open-Meteo geocoding, current, daily, hourly, and demand
