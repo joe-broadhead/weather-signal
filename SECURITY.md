@@ -10,6 +10,15 @@ vulnerability details in public issues.
 Do not include API keys, private endpoint URLs, customer locations, or business
 demand data in public issues, pull requests, logs, screenshots, or examples.
 
+## Repository Security Automation
+
+GitHub vulnerability alerts, Dependabot security updates, secret scanning, and
+secret push protection should stay enabled for this repository. Dependabot
+configuration lives in `.github/dependabot.yml`.
+
+CI and release validation also run `cargo deny check` and `cargo audit` so
+dependency policy and RustSec advisories are checked before changes ship.
+
 ## Supported Versions
 
 Until the first stable release, security fixes target the latest published
