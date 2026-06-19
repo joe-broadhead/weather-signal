@@ -5,7 +5,7 @@ license: MIT
 allowed-tools: "Bash Read mcp__weather_signal__geocode mcp__weather_signal__current_weather mcp__weather_signal__daily_forecast mcp__weather_signal__hourly_forecast mcp__weather_signal__demand_signal mcp__weather_signal__weather_summary mcp__weather_signal__threshold_days mcp__weather_signal__historical_weather mcp__weather_signal__list_places mcp__weather_signal__cache_status"
 metadata:
   owner: "weather-signal"
-  version: "0.0.0"
+  version: "0.0.1"
 ---
 
 # Weather Signal Skill

@@ -88,7 +88,7 @@ SBOMs, and provenance attestations.
 ```bash
 # macOS Apple Silicon
 curl -L -o weather-signal.tar.gz \
-  https://github.com/joe-broadhead/weather-signal/releases/download/v0.0.0/weather-signal-macos-arm64.tar.gz
+  https://github.com/joe-broadhead/weather-signal/releases/download/v0.0.1/weather-signal-macos-arm64.tar.gz
 
 tar -xzf weather-signal.tar.gz
 ./weather-signal-macos-arm64/weather-signal --version

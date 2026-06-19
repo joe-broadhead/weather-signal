@@ -6,8 +6,15 @@ This project follows semantic versioning once releases begin.
 
 ## Unreleased
 
+## [0.0.1] - 2026-06-19
+
 - Use native OS certificate roots with Rustls-backed HTTP requests so macOS
   Keychain and other platform trust stores are honored.
+- Harden GitHub Actions workflows by avoiding persisted checkout credentials in
+  read-only jobs and narrowing Pages deployment token permissions.
+- Document repository security automation for vulnerability alerts, Dependabot
+  security updates, secret scanning, and Rust supply-chain checks.
+- Tighten the cargo-deny license allowlist by removing an unused license entry.
 
 ## [0.0.0] - 2026-04-27
 
