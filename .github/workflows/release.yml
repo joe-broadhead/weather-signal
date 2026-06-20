@@ -42,7 +42,7 @@ jobs:
           echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -128,7 +128,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.release_tag }}
           persist-credentials: false
