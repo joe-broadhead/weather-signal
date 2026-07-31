@@ -6,6 +6,10 @@ This project follows semantic versioning once releases begin.
 
 ## Unreleased
 
+- Align agent skill docs and installer discovery with the consolidated
+  `skills/weather-signal` layout, and correct demand-flag thresholds in the
+  skill reference to match CLI defaults.
+
 ## [0.0.1] - 2026-06-19
 
 - Use native OS certificate roots with Rustls-backed HTTP requests so macOS

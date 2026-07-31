@@ -220,6 +220,34 @@ installed_binary_release_tag() {
   esac
 }
 
+skills_dir_has_packages() {
+  local skills_source="$1"
+  find "${skills_source}" -mindepth 1 -maxdepth 1 -type d \
+    -exec test -f "{}/SKILL.md" ';' -print -quit | grep -q .
+}
+
+# Prefer repo-root skills/; fall back to legacy .github/skills for older releases.
+find_skills_source() {
+  local extract_dir="$1"
+  local candidate=""
+
+  while IFS= read -r candidate; do
+    if skills_dir_has_packages "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(find "${extract_dir}" -type d -path "*/skills" ! -path "*/.github/*")
+
+  while IFS= read -r candidate; do
+    if skills_dir_has_packages "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(find "${extract_dir}" -type d -path "*/.github/skills")
+
+  return 1
+}
+
 list_standalone_skills() {
   local skills_source="$1"
   find "${skills_source}" -mindepth 1 -maxdepth 1 -type d \
@@ -277,8 +305,9 @@ install_skills_from_ref() {
   download_repo_archive "${ref}" "${archive_path}" || return 1
   mkdir -p "${extract_dir}" || return 1
   tar -xzf "${archive_path}" -C "${extract_dir}" || return 1
-  skills_source="$(find "${extract_dir}" -type d -path "*/.github/skills" | head -n 1)"
-  if [[ -z "${skills_source}" ]]; then
+  # Prefer consolidated skills/; fall back to legacy .github/skills for older tags.
+  # Capture under set -e without aborting before the explicit not-found message.
+  if ! skills_source="$(find_skills_source "${extract_dir}")"; then
     echo "Skills directory not found in repository archive for ref '${ref}'." >&2
     return 1
   fi

@@ -20,8 +20,8 @@ Core areas:
 - `src/output.rs` - JSON/table/CSV rendering.
 - `src/mcp.rs` - MCP stdio and streamable HTTP transports.
 - `src/util.rs` - small parsing and path helpers.
-- `.github/skills/` - packaged agent skills for CLI usage, demand-signal
-  workflows, and saved-location setup.
+- `skills/` - packaged agent skill for CLI usage, demand-signal workflows,
+  and saved-location setup.
 - `.github/workflows/` - CI, docs, release prepare/tag/publish automation.
 - `docs/` - MkDocs Material documentation site.
 - `README.md` - public project overview and quick start.
@@ -159,13 +159,13 @@ customer locations, or API keys.
 
 ## Agent Skill Rules
 
-Skills live under `.github/skills/`.
+Skills live under `skills/`.
 
-Current skills:
+Current skill:
 
-- `weather-signal` - core MCP/CLI usage and command selection
-- `weather-demand-signals` - demand forecasting feature workflows
-- `weather-location-setup` - saved place and geocoding setup
+- `weather-signal` - core MCP/CLI usage, demand-signal workflows, and
+  saved-location setup, with progressive-disclosure references for CLI,
+  demand flags, locations, and forecasting workflows
 
 When changing CLI commands, output fields, cache semantics, or signal flags,
 update the relevant skill and reference file in the same change.
