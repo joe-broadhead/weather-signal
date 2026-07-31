@@ -1,29 +1,23 @@
 # Agent Skills
 
-Weather Signal includes three agent skills under `.github/skills/`:
+Weather Signal includes one consolidated agent skill under `skills/`:
 
 ```text
-.github/skills/weather-signal/SKILL.md
-.github/skills/weather-demand-signals/SKILL.md
-.github/skills/weather-location-setup/SKILL.md
+skills/weather-signal/SKILL.md
 ```
 
-## Skills
+## Skill
 
-- `weather-signal`: core MCP/CLI usage, command selection, output modes, and
-  evidence standards.
-- `weather-demand-signals`: using weather outputs as demand forecasting features
-  without overstating causal claims.
-- `weather-location-setup`: saved-place setup for stores, warehouses, regions,
-  and repeatable business locations.
+- `weather-signal`: MCP/CLI usage, command selection, demand forecasting
+  features, saved-place setup, output modes, and evidence standards.
 
 ## References
 
-The core Weather Signal skill uses small reference files that agents load only when needed:
+The skill uses small reference files that agents load only when needed:
 
-- `transport-mcp.md`
-- `transport-cli.md`
-- `output-contracts.md`
+- `cli.md`
+- `demand-signals.md`
+- `locations.md`
 - `forecasting-workflows.md`
 
 ## Typical Agent Prompt

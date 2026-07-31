@@ -14,15 +14,18 @@ Use `demand_signal` for demand forecasting feature enrichment.
 | `wind_gust_max_kmh` | float | Max wind gust |
 | `sunshine_hours` | float | Hours of sun |
 | `uv_index_max` | float | Max UV index |
-| `flags.rain_likely` | bool | Rain probability > 50% |
-| `flags.wet_day` | bool | Precipitation > 0.5mm |
-| `flags.heavy_rain` | bool | Precipitation > 10mm |
-| `flags.warm_day` | bool | Max temp > 20°C |
-| `flags.hot_day` | bool | Max temp > 25°C |
-| `flags.cold_day` | bool | Min temp < 0°C |
-| `flags.windy_day` | bool | Max gust > 38 km/h |
-| `flags.sunny_day` | bool | Sunshine > 8 hours |
-| `flags.high_uv` | bool | UV > 6 |
+| `flags.rain_likely` | bool | Rain probability >= 50% |
+| `flags.wet_day` | bool | Precipitation >= 1 mm |
+| `flags.heavy_rain` | bool | Precipitation >= 5 mm |
+| `flags.warm_day` | bool | Max temp >= 20 C |
+| `flags.hot_day` | bool | Max temp >= 25 C |
+| `flags.cold_day` | bool | Min temp <= 5 C |
+| `flags.windy_day` | bool | Max gust >= 40 km/h |
+| `flags.sunny_day` | bool | Sunshine >= 6 hours |
+| `flags.high_uv` | bool | UV index >= 6 |
+
+These thresholds match the CLI `signal` defaults and
+`docs/reference/signals.md`.
 
 ## Workflow
 

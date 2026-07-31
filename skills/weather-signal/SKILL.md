@@ -9,7 +9,7 @@ Weather and demand-signal features via Open-Meteo. Prefer MCP tools when availab
 
 ## Tool Map
 
-All MCP tools are prefixed `weather-signal_`:
+MCP tools are registered with these names (some clients may namespace them):
 
 | Need | MCP Tool |
 |------|----------|
