@@ -306,8 +306,8 @@ install_skills_from_ref() {
   mkdir -p "${extract_dir}" || return 1
   tar -xzf "${archive_path}" -C "${extract_dir}" || return 1
   # Prefer consolidated skills/; fall back to legacy .github/skills for older tags.
-  skills_source="$(find_skills_source "${extract_dir}")"
-  if [[ -z "${skills_source}" ]]; then
+  # Capture under set -e without aborting before the explicit not-found message.
+  if ! skills_source="$(find_skills_source "${extract_dir}")"; then
     echo "Skills directory not found in repository archive for ref '${ref}'." >&2
     return 1
   fi
