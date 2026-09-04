@@ -31,4 +31,6 @@ to loopback or place it behind an authenticating reverse proxy before exposing
 it to a network.
 
 Streamable HTTP is stateless by default. Use `--http-stateful-mode` only for
-trusted local clients because stateful sessions are held in process memory.
+trusted local clients running legacy MCP protocols ("< 2026-07-28")because
+stateful sessions are held in process memory; newer protocol versions are always
+served statelessly.
