@@ -387,7 +387,7 @@ async fn serve_mcp_http(
             move || Ok::<WeatherMcpServer, io::Error>(server.clone()),
             Arc::default(),
             StreamableHttpServerConfig::default()
-                .with_stateful_mode(args.http_stateful_mode)
+                .with_legacy_session_mode(args.http_stateful_mode)
                 .with_sse_keep_alive(Some(Duration::from_secs(30)))
                 .with_sse_retry(Some(Duration::from_secs(5)))
                 .with_cancellation_token(shutdown.clone()),
