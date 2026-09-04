@@ -333,7 +333,7 @@ pub(crate) struct ServerStartArgs {
     #[arg(
         long,
         default_value_t = false,
-        help = "Enable stateful streamable HTTP sessions"
+        help = "Enable stateful streamable HTTP sessions for legacy MCP protocol clients (< 2026-07-28); newer protocol versions are always served statelessly"
     )]
     pub(crate) http_stateful_mode: bool,
 }

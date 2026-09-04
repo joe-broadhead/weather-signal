@@ -46,8 +46,9 @@ server prints a warning when `--http-host` is not `127.0.0.1`, `localhost`, or
 `::1`.
 
 Streamable HTTP is stateless by default. Use `--http-stateful-mode` only for
-trusted local clients because stateful sessions are held in process memory for
-the lifetime of the server process.
+trusted local clients running legacy MCP protocols ("< 2026-07-28")because
+stateful sessions are held in process memory for the lifetime of the server process;
+newer protocol versions are always served statelessly.
 
 ## Tools
 

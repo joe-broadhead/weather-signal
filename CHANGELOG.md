@@ -6,6 +6,11 @@ This project follows semantic versioning once releases begin.
 
 ## Unreleased
 
+- Upgrade `rmcp` to 3.0.1. Stateful streamable HTTP sessions are now
+  legacy-only: they apply to MCP protocol clients older than 2026-07-28,
+  while newer protocol versions are always served statelessly (`--http-stateful-mode`
+  now only affects legacy sessions). Refresh `chacha20` to a non-yanked release
+  so `cargo deny` passes again.
 - Align agent skill docs and installer discovery with the consolidated
   `skills/weather-signal` layout, and correct demand-flag thresholds in the
   skill reference to match CLI defaults.

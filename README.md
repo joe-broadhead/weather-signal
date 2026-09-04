@@ -208,8 +208,9 @@ weather-signal server start --transport streamable-http --http-host 127.0.0.1 --
 The MCP surface exposes tools such as `weather_summary`, `demand_signal`,
 `threshold_days`, `historical_weather`, `daily_forecast`, and `geocode`.
 Streamable HTTP is stateless by default and should stay on loopback unless an
-authenticating proxy controls access. Use `--http-stateful-mode` only for
-trusted local clients because stateful sessions are held in process memory.
+authenticating proxy controls access. Use `--http-stateful-mode` only for trusted
+legacy MCP protocol clients ("< 2026-07-28")because stateful sessions are held
+in process memory; newer protocol versions are always served statelessly.
 
 ## Documentation
 
