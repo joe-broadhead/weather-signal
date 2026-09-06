@@ -21,7 +21,7 @@ anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
-comfy-table = "7"
+comfy-table = "8"
 csv = "1"
 futures = "0.3"
 hex = "0.4"
