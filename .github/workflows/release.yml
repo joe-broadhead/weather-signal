@@ -77,7 +77,7 @@ jobs:
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Install supply-chain tools
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2
+        uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2
         with:
           tool: cargo-deny,cargo-audit
 
@@ -200,7 +200,7 @@ jobs:
           XDG_CACHE_HOME="${smoke_dir}/cache" XDG_CONFIG_HOME="${smoke_dir}/config" "${bin}" cache status
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: .
           format: spdx-json
@@ -218,7 +218,7 @@ jobs:
             weather-signal-${{ matrix.asset }}.sbom.spdx.json
 
       - name: Publish release assets
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.validate.outputs.release_tag }}
           name: ${{ needs.validate.outputs.release_tag }}
